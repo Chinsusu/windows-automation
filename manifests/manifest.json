@@ -1,0 +1,14 @@
+{
+  "name": "AutoAgent",
+  "latest": "0.2.0",
+  "files": [
+    {
+      "version": "0.2.0",
+      "sha256": "<fill-after-build>",
+      "size": 0,
+      "url": "https://<your-r2-domain>/AutoAgent-0.2.0.exe",
+      "released_at": "2025-10-07T05:17:42.044718",
+      "notes": "Initial skeleton"
+    }
+  ]
+}

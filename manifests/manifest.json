@@ -1,14 +1,14 @@
-{
-  "name": "AutoAgent",
-  "latest": "0.2.0",
-  "files": [
-    {
-      "version": "0.2.0",
-      "sha256": "<fill-after-build>",
-      "size": 0,
-      "url": "https://<your-r2-domain>/AutoAgent-0.2.0.exe",
-      "released_at": "2025-10-07T05:17:42.044718",
-      "notes": "Initial skeleton"
-    }
-  ]
+﻿{
+    "name":  "AutoAgent",
+    "files":  [
+                  {
+                      "version":  "0.2.1",
+                      "sha256":  "5e64e91985f8b45d3fd86334e74dfc406c6e37dc0d74db02be602b334c342f1b",
+                      "notes":  "Test build with fixed command presets",
+                      "released_at":  "2025-10-07T06:16:44.862Z",
+                      "url":  "https://r2-file-server.gdrivetest.workers.dev/download/releases/AutoAgent-0.2.1.exe",
+                      "size":  1233408
+                  }
+              ],
+    "latest":  "0.2.1"
 }

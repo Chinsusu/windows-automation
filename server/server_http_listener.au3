@@ -142,22 +142,40 @@ EndFunc
 
 ; ---------- Handlers ----------
 Func _HandleCB(ByRef $req, $cSock)
-    Local $cid = _JsonGetStr($req.Item("body"), "client_id")
-    Local $status = _JsonGetStr($req.Item("body"), "status")
-    Local $message = _JsonGetStr($req.Item("body"), "message")
-    Local $ip_local = _JsonGetStr($req.Item("body"), "ip_local")
-    Local $ts = _JsonGetStr($req.Item("body"), "ts")
+    _LogUI("[CB] Handler started")
+    
+    ; Step 1: Parse JSON body
+    Local $body = $req.Item("body")
+    _LogUI("[CB] Body length: " & StringLen($body))
+    
+    Local $cid = _JsonGetStr($body, "client_id")
+    Local $status = _JsonGetStr($body, "status")
+    Local $message = _JsonGetStr($body, "message")
+    Local $ip_local = _JsonGetStr($body, "ip_local")
+    Local $ts = _JsonGetStr($body, "ts")
     If $ts = "" Then $ts = _NowTs()
+    
+    _LogUI("[CB] Parsed - cid: " & $cid & ", status: " & $status)
 
     If $cid = "" Then
+        _LogUI("[CB] ERROR: Missing client_id")
         _SendHTTP($cSock, 400, "text/plain", "Missing client_id")
         Return
     EndIf
 
-    Local $ip_public = "" ; nếu cần IP public thật, đặt listener sau proxy và đọc X-Forwarded-For
+    ; Step 2: DB Upsert with error handling
+    Local $ip_public = ""
+    _LogUI("[CB] Calling _DB_UpsertClient...")
+    
     _DB_UpsertClient($cid, $ip_public, $ip_local, $status, $message, $ts)
-
-    _LogUI("[CB] " & $cid & " [" & $status & "] " & $message)
+    
+    If @error Then
+        _LogUI("[CB] ERROR: DB upsert failed - " & @error)
+        _SendHTTP($cSock, 500, "text/plain", "Database error")
+        Return
+    EndIf
+    
+    _LogUI("[CB] SUCCESS: " & $cid & " [" & $status & "] " & $message)
     _SendHTTP($cSock, 200, "text/plain", "ok")
 EndFunc
 

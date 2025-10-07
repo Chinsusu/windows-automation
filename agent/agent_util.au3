@@ -4,7 +4,8 @@
 #include <Date.au3>
 #include <Crypt.au3>
 
-Global Const $LOG_DIR = @ProgramDataDir & "\AutoAgent"
+; FIX: @ProgramDataDir không tồn tại, dùng đường dẫn cứng hoặc @AppDataCommonDir
+Global Const $LOG_DIR = "C:\ProgramData\AutoAgent"
 Global Const $LOG_PATH = $LOG_DIR & "\agent.log"
 
 Func _EnsureDir($p)

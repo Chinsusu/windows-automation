@@ -2,13 +2,13 @@
     "name":  "AutoAgent",
     "files":  [
                   {
-                      "version":  "0.2.2",
-                      "sha256":  "8853e46565993a7fd84f6149fa5e1ea2a83e5865d9c850d87164b018f9d0d407",
-                      "notes":  "Fixed @CPUArch macro and ternary operator for compatibility",
-                      "released_at":  "2025-10-07T20:10:27.721Z",
-                      "url":  "https://r2-file-server.gdrivetest.workers.dev/download/releases/AutoAgent-0.2.2.exe",
+                      "version":  "0.2.3",
+                      "sha256":  "d424ffd20e31c684ecdc05d5fe65d5dc222876a085fac36b971a3c390748fea1",
+                      "notes":  "Fixed all macro errors: @CPUArch-\u003e@OSArch, @ProgramDataDir-\u003ehardcoded path",
+                      "released_at":  "2025-10-07T20:49:58.893Z",
+                      "url":  "https://r2-file-server.gdrivetest.workers.dev/download/releases/AutoAgent-0.2.3.exe",
                       "size":  1231360
                   }
               ],
-    "latest":  "0.2.2"
+    "latest":  "0.2.3"
 }

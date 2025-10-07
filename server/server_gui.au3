@@ -43,14 +43,25 @@ WEnd
 
 ; --- Graceful exit helpers ---
 Func _SafeExit()
+    ; Disable button to prevent double-click
     GUICtrlSetState($btnClose, $GUI_DISABLE)
-    GUICtrlSetData($log, GUICtrlRead($log) & @YEAR & "-" & @MON & "-" & @MDAY & "T" & @HOUR & ":" & @MIN & ":" & @SEC & "  Shutting down..." & @CRLF)
+    
+    ; Try to stop listener (with timeout protection)
+    Local $timer = TimerInit()
     _Listener_Stop()
+    
+    ; Force exit if taking too long
+    If TimerDiff($timer) > 2000 Then
+        ; Timeout - force kill
+        ProcessClose(@AutoItPID)
+    EndIf
+    
+    ; Normal exit
     GUIDelete($hGUI)
     Exit
 EndFunc
 
 Func _AppCleanup()
-    ; đảm bảo listener được stop nếu thoát đột ngột
-    _Listener_Stop()
+    ; Emergency cleanup - don't wait, just close
+    AdlibUnRegister("_Listener_Pump")
 EndFunc

@@ -78,7 +78,7 @@ Func _Listener_Pump()
     EndIf
 
     ; Read body if present
-    Local $hdrs = $req.Item("headers") ; <-- biến tách riêng để truyền vào hàm (fix line 85: ByRef)
+    Local $hdrs = $req.headers ; <-- biến tách riêng để truyền vào hàm (fix line 85: ByRef)
     Local $cl = _HeaderGet($hdrs, "Content-Length")
     Local $body = ""
     If Number($cl) > 0 Then
@@ -89,16 +89,16 @@ Func _Listener_Pump()
             Return
         EndIf
     EndIf
-    $req.Item("body") = $body
+    $req.body = $body
 
     ; Dispatch
-    Local $path = $req.Item("path")
+    Local $path = $req.path
     Switch $path
         Case "/health"
             _SendHTTP($cSock, 200, "text/plain", "ok")
 
         Case "/cb"
-            If StringUpper($req.Item("method")) <> "POST" Then
+            If StringUpper($req.method) <> "POST" Then
                 _SendHTTP($cSock, 405, "text/plain", "Method Not Allowed")
             Else
                 If Not _AuthOK($hdrs) Then
@@ -109,14 +109,14 @@ Func _Listener_Pump()
             EndIf
 
         Case "/tasks"
-            If StringUpper($req.Item("method")) <> "GET" Then
+            If StringUpper($req.method) <> "GET" Then
                 _SendHTTP($cSock, 405, "text/plain", "Method Not Allowed")
             Else
                 _HandleTasks($req, $cSock)
             EndIf
 
         Case "/task_result"
-            If StringUpper($req.Item("method")) <> "POST" Then
+            If StringUpper($req.method) <> "POST" Then
                 _SendHTTP($cSock, 405, "text/plain", "Method Not Allowed")
             Else
                 If Not _AuthOK($hdrs) Then
@@ -141,12 +141,12 @@ EndFunc
 
 ; ---------- Handlers ----------
 Func _HandleCB(ByRef $req, $cSock)
-    Local $cid = _JsonGetStr($req.Item("body"), "client_id")
-    Local $status = _JsonGetStr($req.Item("body"), "status")
-    Local $message = _JsonGetStr($req.Item("body"), "message")
-    Local $ip_local = _JsonGetStr($req.Item("body"), "ip_local")
-    Local $ts = _JsonGetStr($req.Item("body"), "ts")
-    If $ts = "" Then $ts = _NowTs()
+    Local $cid = _JsonGetStr($req.body, "client_id")
+    Local $status = _JsonGetStr($req.body, "status")
+    Local $message = _JsonGetStr($req.body, "message")
+    Local $ip_local = _JsonGetStr($req.body, "ip_local")
+    Local $ts = _JsonGetStr($req.body, "ts")
+    If $ts = "" Then $ts = _NowCalc()
 
     If $cid = "" Then
         _SendHTTP($cSock, 400, "text/plain", "Missing client_id")
@@ -161,7 +161,7 @@ Func _HandleCB(ByRef $req, $cSock)
 EndFunc
 
 Func _HandleTasks(ByRef $req, $cSock)
-    Local $cid = _QueryGet($req.Item("query"), "client_id")
+    Local $cid = _QueryGet($req.query, "client_id")
     If $cid = "" Then
         _SendHTTP($cSock, 400, "application/json", '{"error":"missing client_id"}')
         Return
@@ -188,11 +188,11 @@ Func _HandleTasks(ByRef $req, $cSock)
 EndFunc
 
 Func _HandleTaskResult(ByRef $req, $cSock)
-    Local $cid = _JsonGetStr($req.Item("body"), "client_id")
-    Local $task_id = _JsonGetStr($req.Item("body"), "task_id")
-    Local $ok = _JsonGetBool($req.Item("body"), "ok")
-    Local $result = _JsonGetStr($req.Item("body"), "result")
-    Local $err = _JsonGetStr($req.Item("body"), "err")
+    Local $cid = _JsonGetStr($req.body, "client_id")
+    Local $task_id = _JsonGetStr($req.body, "task_id")
+    Local $ok = _JsonGetBool($req.body, "ok")
+    Local $result = _JsonGetStr($req.body, "result")
+    Local $err = _JsonGetStr($req.body, "err")
 
     If $task_id = "" Then
         _SendHTTP($cSock, 400, "text/plain", "Missing task_id")
@@ -289,7 +289,7 @@ Func _DB_SaveResult($task_id, $ok, $result, $err)
     Local $st = "error"
     If $ok Then $st = "done"
     Local $resq = _Q($result), $erq = _Q($err)
-    Local $now = _Q(_NowTs())
+    Local $now = _Q(_NowCalc())
     _SQLite_Exec($gDB, "UPDATE tasks SET status='" & $st & "', result=" & $resq & ", executed_at=" & $now & " WHERE task_id=" & $tidq & ";")
 EndFunc
 
@@ -299,7 +299,7 @@ Func _EnsureDir($p)
 EndFunc
 
 Func _LogUI($s)
-    Local $line = _NowTs() & "  " & $s & @CRLF
+    Local $line = _NowCalc() & "  " & $s & @CRLF
     If $gAttachedLog <> -1 Then GUICtrlSetData($gAttachedLog, GUICtrlRead($gAttachedLog) & $line)
 EndFunc
 
@@ -393,13 +393,12 @@ Func _ParseRequestHeaders($raw)
         EndIf
     Next
 
-    ; Use COM dictionary via Add/Item (không dùng property chấm)
     Local $req = ObjCreate("Scripting.Dictionary")
-    $req.Add("method",  $method)
-    $req.Add("path",    $path)
-    $req.Add("query",   $query)
-    $req.Add("headers", $hdrs)
-    $req.Add("body",    "")
+    $req.method = $method
+    $req.path = $path
+    $req.query = $query
+    $req.headers = $hdrs
+    $req.body = ""
     Return $req
 EndFunc
 
@@ -470,11 +469,8 @@ Func _SendEmpty($sock, $code)
     TCPSend($sock, $hdr)
 EndFunc
 
-; --- Timestamp helper to avoid name clash with Date.au3's _NowCalc()
-Func _NowTs()
-    ; ISO-like timestamp: YYYY-MM-DDTHH:MM:SS
-    Return @YEAR & "-" & StringFormat("%02d", @MON) & "-" & StringFormat("%02d", @MDAY) & _
-           "T" & StringFormat("%02d", @HOUR) & ":" & StringFormat("%02d", @MIN) & ":" & StringFormat("%02d", @SEC)
+Func _NowCalc()
+    Return @YEAR & "-" & @MON & "-" & @MDAY & "T" & @HOUR & ":" & @MIN & ":" & @SEC
 EndFunc
 
 ; ----- Tiny JSON helpers (string-only + bool) -----

@@ -1,4 +1,5 @@
 ; agent_commands.au3
+#include-once
 #include "agent_util.au3"
 #include <Misc.au3>
 #include <WinAPIFiles.au3>

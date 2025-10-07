@@ -1,4 +1,5 @@
 ; server_commands_catalog.au3
+#include-once
 ; Preset lệnh để GUI show dropdown
 Func _CommandPresets()
     Local $arr[3]

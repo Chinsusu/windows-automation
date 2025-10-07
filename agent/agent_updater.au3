@@ -1,4 +1,5 @@
 ; agent_updater.au3
+#include-once
 #include "agent_config.au3"
 #include "agent_http.au3"
 #include "agent_util.au3"

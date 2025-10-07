@@ -1,4 +1,5 @@
 ; agent_http.au3
+#include-once
 ; Minimal HTTP stub via InetRead/InetGet. Replace by WinHttp.au3 for headers/long-poll.
 #include "agent_config.au3"
 #include "agent_util.au3"

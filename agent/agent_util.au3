@@ -1,4 +1,5 @@
 ; agent_util.au3
+#include-once
 #include <File.au3>
 #include <Date.au3>
 #include <Crypt.au3>

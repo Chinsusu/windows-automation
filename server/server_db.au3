@@ -1,4 +1,5 @@
 ; server_db.au3
+#include-once
 #include <SQLite.au3>
 #include <SQLite.dll.au3>
 

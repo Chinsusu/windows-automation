@@ -25,7 +25,14 @@ _Listener_AttachGui($log, $lv)
 _Listener_Start(8080)
 
 While 1
-    Switch GUIGetMsg()
+    Local $msg = GUIGetMsg()
+    
+    ; Debug: log ALL events (comment out after debug)
+    If $msg <> 0 Then
+        GUICtrlSetData($log, GUICtrlRead($log) & "[DEBUG] Event: " & $msg & " (Close btn ID: " & $btnClose & ")" & @CRLF)
+    EndIf
+    
+    Switch $msg
         Case $GUI_EVENT_CLOSE
             GUICtrlSetData($log, GUICtrlRead($log) & "[1] X button clicked" & @CRLF)
             _SafeExit()

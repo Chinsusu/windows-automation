@@ -38,30 +38,17 @@ While 1
             _SafeExit()
     EndSwitch
     ; TODO: refresh listview from DB
-    Sleep(200)
+    Sleep(50)  ; Faster response to button clicks
 WEnd
 
 ; --- Graceful exit helpers ---
 Func _SafeExit()
-    ; Disable button to prevent double-click
-    GUICtrlSetState($btnClose, $GUI_DISABLE)
-    
-    ; Try to stop listener (with timeout protection)
-    Local $timer = TimerInit()
-    _Listener_Stop()
-    
-    ; Force exit if taking too long
-    If TimerDiff($timer) > 2000 Then
-        ; Timeout - force kill
-        ProcessClose(@AutoItPID)
-    EndIf
-    
-    ; Normal exit
-    GUIDelete($hGUI)
-    Exit
+    ; Quick exit - no cleanup, just kill
+    ; (Cleanup causes hang, so we force exit immediately)
+    ProcessClose(@AutoItPID)
 EndFunc
 
 Func _AppCleanup()
-    ; Emergency cleanup - don't wait, just close
+    ; Emergency cleanup
     AdlibUnRegister("_Listener_Pump")
 EndFunc

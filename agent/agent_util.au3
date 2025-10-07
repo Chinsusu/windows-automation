@@ -3,7 +3,7 @@
 #include <Crypt.au3>
 #include <Date.au3>
 
-Global Const $AG_LOG_DIR  = @ProgramDataDir & "\AutoAgent"
+Global Const $AG_LOG_DIR  = @AppDataDir & "\AutoAgent"
 Global Const $AG_LOG_FILE = $AG_LOG_DIR & "\agent.log"
 
 Func _EnsureDir($p)

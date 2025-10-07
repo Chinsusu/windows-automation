@@ -1,5 +1,5 @@
 #include-once
-#include <WinHttp.au3>
+#include "..\Winhttp\WinHttp.au3"
 #include "agent_config.au3"
 #include "agent_util.au3"
 
@@ -8,11 +8,21 @@ Func _ParseServer(ByRef $scheme, ByRef $host, ByRef $port)
     Local $u = _Cfg_Server()
     Local $m = StringRegExp($u, '^(https?)://([^/:]+)(?::([0-9]+))?/?$', 1)
     If @error Or UBound($m) < 2 Then
-        $scheme = "http" : $host = "127.0.0.1" : $port = 8080
+        $scheme = "http"
+        $host = "127.0.0.1"
+        $port = 8080
     Else
         $scheme = $m[0]
         $host = $m[1]
-        $port = (UBound($m) >= 3 And $m[2] <> "") ? Number($m[2]) : (StringLower($scheme) = "https" ? 443 : 80)
+        If UBound($m) >= 3 And $m[2] <> "" Then
+            $port = Number($m[2])
+        Else
+            If StringLower($scheme) = "https" Then
+                $port = 443
+            Else
+                $port = 80
+            EndIf
+        EndIf
     EndIf
 EndFunc
 
@@ -21,13 +31,25 @@ Func _HttpReq($method, $path, $payload, $timeout)
     _ParseServer($scheme, $host, $port)
 
     Local $hOpen = _WinHttpOpen("AutoAgent/" & $CFG_VERSION)
-    If $hOpen = 0 Then Return SetError(1,0,[0,""])
+    If $hOpen = 0 Then
+        Local $ret[2]
+        $ret[0] = 0
+        $ret[1] = ""
+        Return SetError(1, 0, $ret)
+    EndIf
+    
     Local $hConn = _WinHttpConnect($hOpen, $host, $port)
     If $hConn = 0 Then
         _WinHttpCloseHandle($hOpen)
-        Return SetError(1,0,[0,""])
+        Local $ret[2]
+        $ret[0] = 0
+        $ret[1] = ""
+        Return SetError(1, 0, $ret)
     EndIf
-    Local $flags = (StringLower($scheme) = "https") ? $WINHTTP_FLAG_SECURE : 0
+    
+    Local $flags = 0
+    If StringLower($scheme) = "https" Then $flags = $WINHTTP_FLAG_SECURE
+    
     Local $hReq = _WinHttpOpenRequest($hConn, $method, $path, "HTTP/1.1", "", "", $flags)
     _WinHttpSetTimeouts($hReq, $timeout, $timeout, $timeout, $timeout)
 
@@ -42,7 +64,7 @@ Func _HttpReq($method, $path, $payload, $timeout)
     _WinHttpSendRequest($hReq, "", 0, $bin, BinaryLen($bin))
     _WinHttpReceiveResponse($hReq)
 
-    Local $status = Number(_WinHttpQueryInfo($hReq, $WINHTTP_QUERY_STATUS_CODE))
+    Local $status = Number(_WinHttpQueryHeaders($hReq, $WINHTTP_QUERY_STATUS_CODE))
     Local $data = ""
     While 1
         Local $chunk = _WinHttpReadData($hReq, 8192)
@@ -53,10 +75,10 @@ Func _HttpReq($method, $path, $payload, $timeout)
     _WinHttpCloseHandle($hReq)
     _WinHttpCloseHandle($hConn)
     _WinHttpCloseHandle($hOpen)
-    Local $r[2]
-    $r[0] = $status
-    $r[1] = $data
-    Return $r
+    Local $ret[2]
+    $ret[0] = $status
+    $ret[1] = $data
+    Return $ret
 EndFunc
 
 Func _HttpGet($path, $timeout)

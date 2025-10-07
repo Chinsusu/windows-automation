@@ -37,16 +37,16 @@ Func _Updater_SwapAndRestart($newPath)
     Local $fh = FileOpen($bat, 2)
     If $fh = -1 Then Return
     FileWrite($fh, "@echo off" & @CRLF & _
-        "set t=\"" & $self & "\"" & @CRLF & _
-        "set n=\"" & $newPath & "\"" & @CRLF & _
+        "set t=""" & $self & """" & @CRLF & _
+        "set n=""" & $newPath & """" & @CRLF & _
         ":wait" & @CRLF & _
         "(del %t% >nul 2>&1) && goto go || (ping -n 2 127.0.0.1 >nul & goto wait)" & @CRLF & _
         ":go" & @CRLF & _
         "copy /y %n% %t% >nul" & @CRLF & _
-        "start \"\" %t%" & @CRLF & _
+        "start """" %t%" & @CRLF & _
         "del /f /q %n%" & @CRLF & _
-        "del /f /q \"%~f0\"" & @CRLF)
+        "del /f /q ""%~f0""" & @CRLF)
     FileClose($fh)
-    Run(@ComSpec & " /c start \"\" \"" & $bat & "\"", "", @SW_HIDE)
+    Run(@ComSpec & ' /c start "" "' & $bat & '"', "", @SW_HIDE)
     Exit ; terminate so batch can replace
 EndFunc

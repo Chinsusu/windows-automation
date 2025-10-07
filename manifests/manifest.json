@@ -3,9 +3,9 @@
     "files":  [
                   {
                       "version":  "0.2.2",
-                      "sha256":  "73c603dc3391f2bca93336c29726ad83d84de8d7db971fc6f69c68039c7afd59",
-                      "notes":  "Fixed duplicate function error with #include-once",
-                      "released_at":  "2025-10-07T13:28:40.266Z",
+                      "sha256":  "8853e46565993a7fd84f6149fa5e1ea2a83e5865d9c850d87164b018f9d0d407",
+                      "notes":  "Fixed @CPUArch macro and ternary operator for compatibility",
+                      "released_at":  "2025-10-07T20:10:27.721Z",
                       "url":  "https://r2-file-server.gdrivetest.workers.dev/download/releases/AutoAgent-0.2.2.exe",
                       "size":  1231360
                   }

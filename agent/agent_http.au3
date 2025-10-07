@@ -42,7 +42,9 @@ Func _Api_Callback($cid, $status, $message)
 EndFunc
 
 Func _Api_PostResult($cid, $task_id, $ok, $result, $err)
-    Local $payload = '{"client_id":"' & $cid & '","task_id":"' & $task_id & '","ok":' & ($ok? "true":"false") & ',"result":"' & StringReplace($result, '"','\"') & '","err":"' & StringReplace($err, '"','\"') & '"}'
+    Local $okstr = "false"
+    If $ok Then $okstr = "true"
+    Local $payload = '{"client_id":"' & $cid & '","task_id":"' & $task_id & '","ok":' & $okstr & ',"result":"' & StringReplace($result, '"','\"') & '","err":"' & StringReplace($err, '"','\"') & '"}'
     _HttpPost("/task_result", $payload)
 EndFunc
 

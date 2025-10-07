@@ -19,12 +19,13 @@ EndFunc
 
 Func _ComputeClientId()
     _Crypt_Startup()
-    Local $raw = @ComputerName & "|" & @OSVersion & "|" & @CPUArch
+    ; FIX: dùng @OSArch (AutoIt có macro này), @CPUArch là macro không tồn tại
+    Local $raw = @ComputerName & "|" & @OSVersion & "|" & @OSArch
     Local $bin = StringToBinary($raw, 4)
     Local $hash = _Crypt_HashData($bin, $CALG_SHA1)
     _Crypt_Shutdown()
-    ; take 16 hex chars
-    Local $hex = StringTrimLeft($hash, 2) ; "0x" prefix -> remove
+    ; giữ logic cũ: cắt còn 16 ký tự hex
+    Local $hex = StringTrimLeft($hash, 2) ; nếu là dạng "0x...." -> bỏ 0x
     Return StringLeft($hex, 16)
 EndFunc
 

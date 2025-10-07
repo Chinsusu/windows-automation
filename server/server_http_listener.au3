@@ -33,14 +33,17 @@ Func _Listener_Start($port = 8080)
     _EnsureDir(@ScriptDir & "\..\logs")
 
     TCPStartup()
-    $gSrvSock = TCPListen(@IPAddress1, $gPort, 100)
+    ; Bind to 0.0.0.0 to listen on all interfaces
+    $gSrvSock = TCPListen("0.0.0.0", $gPort, 100)
     If $gSrvSock = -1 Then
-        _LogUI("HTTP listener start FAILED on " & @IPAddress1 & ":" & $gPort)
+        _LogUI("HTTP listener start FAILED on port " & $gPort)
         Return SetError(1, 0, 0)
     EndIf
 
     _DB_Startup()
-    _LogUI("HTTP listener started at http://" & @IPAddress1 & ":" & $gPort)
+    ; Get LAN IP (192.168.x.x)
+    Local $ip = _GetLANIP()
+    _LogUI("HTTP listener started at 0.0.0.0:" & $gPort & "  (local IP: " & $ip & ")")
 
     ; pump every 50ms
     AdlibRegister("_Listener_Pump", 50)
@@ -89,11 +92,16 @@ Func _Listener_Pump()
         EndIf
     EndIf
     $req.body = $body
-    $req.remote = @TCPRemoteHost
+    ; Không có macro @TCPRemoteHost hợp lệ; để trống hoặc suy từ header
+    $req.remote = ""
 
     ; Dispatch
     Local $path = $req.path
     Switch $path
+        Case "/health"
+            _SendHTTP($cSock, 200, "text/plain", "ok")
+            ; không log health để tránh spam
+
         Case "/cb"
             If StringUpper($req.method) <> "POST" Then
                 _SendHTTP($cSock, 405, "text/plain", "Method Not Allowed")
@@ -285,6 +293,16 @@ Func _DB_SaveResult($task_id, $ok, $result, $err)
 EndFunc
 
 ; ---------- Helpers ----------
+Func _GetLANIP()
+    ; Try to find 192.168.x.x IP address
+    For $i = 1 To 4
+        Local $ip = Execute("@IPAddress" & $i)
+        If StringLeft($ip, 8) = "192.168." Then Return $ip
+    Next
+    ; Fallback to first adapter
+    Return @IPAddress1
+EndFunc
+
 Func _EnsureDir($p)
     If Not FileExists($p) Then DirCreate($p)
 EndFunc
@@ -323,11 +341,11 @@ Func _AuthOK(ByRef $req)
 EndFunc
 
 Func _RemoteIP(ByRef $req)
-    ; try X-Forwarded-For first (if behind proxy)
+    ; Ưu tiên X-Forwarded-For (nếu chạy sau proxy)
     Local $xff = _HeaderGet($req.headers, "X-Forwarded-For")
     If $xff <> "" Then Return StringStripWS(StringSplit($xff, ",")[1], 3)
-    ; fallback
-    Return TCPNameToIP(@TCPRemoteHost)
+    ; Không có cách lấy remote socket IP trực tiếp ở đây → trả rỗng
+    Return ""
 EndFunc
 
 ; ----- HTTP parsing/sending -----

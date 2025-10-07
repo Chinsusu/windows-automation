@@ -40,7 +40,8 @@ Func _Listener_Start($port = 8080)
     EndIf
 
     _DB_Startup()
-    _LogUI("HTTP listener started at 0.0.0.0:" & $gPort & "  (local IP: " & @IPAddress1 & ")")
+    Local $lanIP = _GetLANIP()
+    _LogUI("HTTP listener started at 0.0.0.0:" & $gPort & "  (local IP: " & $lanIP & ")")
 
     ; pump every 50ms
     AdlibRegister("_Listener_Pump", 50)
@@ -249,33 +250,41 @@ EndFunc
 
 Func _DB_UpsertClient($cid, $ip_public, $ip_local, $status, $message, $ts)
     Local $cidq = _Q($cid), $ipq = _Q($ip_public), $ilq = _Q($ip_local), $stq = _Q($status), $msgq = _Q($message), $tsq = _Q($ts)
-    Local $a
-    _SQLite_GetTable2d($gDB, "SELECT client_id FROM clients WHERE client_id=" & $cidq, $a)
-    If @error Or UBound($a) < 2 Then
-        Local $sql = "INSERT INTO clients(client_id,ip_public,ip_local,status,last_message,last_seen) VALUES(" & _
-            $cidq & "," & $ipq & "," & $ilq & "," & $stq & "," & $msgq & "," & $tsq & ");"
-        _SQLite_Exec($gDB, $sql)
+
+    ; CHECK tồn tại client
+    Local $a, $iRows, $iCols
+    _SQLite_GetTable2d($gDB, "SELECT client_id FROM clients WHERE client_id=" & $cidq, $a, $iRows, $iCols)
+    If @error Or $iRows = 0 Then
+        ; INSERT
+        Local $sqlIns = "INSERT INTO clients(client_id,ip_public,ip_local,status,last_message,last_seen) VALUES(" & _
+                        $cidq & "," & $ipq & "," & $ilq & "," & $stq & "," & $msgq & "," & $tsq & ");"
+        _SQLite_Exec($gDB, $sqlIns)
     Else
-        Local $sql = "UPDATE clients SET ip_public=" & $ipq & ", ip_local=" & $ilq & ", status=" & $stq & _
-            ", last_message=" & $msgq & ", last_seen=" & $tsq & " WHERE client_id=" & $cidq & ";"
-        _SQLite_Exec($gDB, $sql)
+        ; UPDATE
+        Local $sqlUpd = "UPDATE clients SET ip_public=" & $ipq & ", ip_local=" & $ilq & ", status=" & $stq & _
+                        ", last_message=" & $msgq & ", last_seen=" & $tsq & " WHERE client_id=" & $cidq & ";"
+        _SQLite_Exec($gDB, $sqlUpd)
     EndIf
 EndFunc
 
 Func _DB_GetNextTask($cid)
     Local $cidq = _Q($cid)
-    Local $sql = "SELECT task_id, type, args FROM tasks WHERE client_id=" & $cidq & " AND status='queued' ORDER BY datetime(created_at) LIMIT 1;"
-    Local $a
-    _SQLite_GetTable2d($gDB, $sql, $a)
-    If @error Or UBound($a) < 2 Then
+    Local $sql = "SELECT task_id, type, args FROM tasks WHERE client_id=" & $cidq & " AND status='queued' " & _
+                 "ORDER BY datetime(created_at) LIMIT 1;"
+
+    Local $a, $iRows, $iCols
+    _SQLite_GetTable2d($gDB, $sql, $a, $iRows, $iCols)
+    If @error Or $iRows = 0 Then
         Local $empty[0]
         SetError(1)
         Return $empty
     EndIf
+
+    ; _SQLite_GetTable2d trả 2D array, hàng 0 là header → dữ liệu ở hàng 1
     Local $row[3]
-    $row[0] = $a[1][0]
-    $row[1] = $a[1][1]
-    $row[2] = $a[1][2]
+    $row[0] = $a[1][0] ; task_id
+    $row[1] = $a[1][1] ; type
+    $row[2] = $a[1][2] ; args
     Return $row
 EndFunc
 
@@ -294,6 +303,16 @@ Func _DB_SaveResult($task_id, $ok, $result, $err)
 EndFunc
 
 ; ---------- Helpers ----------
+Func _GetLANIP()
+    ; Try to find 192.168.x.x IP address
+    For $i = 1 To 4
+        Local $ip = Execute("@IPAddress" & $i)
+        If StringLeft($ip, 8) = "192.168." Then Return $ip
+    Next
+    ; Fallback to first adapter
+    Return @IPAddress1
+EndFunc
+
 Func _EnsureDir($p)
     If Not FileExists($p) Then DirCreate($p)
 EndFunc

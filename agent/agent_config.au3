@@ -1,9 +1,9 @@
 ; agent_config.au3
 #include-once
 ; Simple config getters (no external file to keep 1-file agent deploy)
-Global Const $CFG_SERVER = "http://127.0.0.1:8080"
+Global Const $CFG_SERVER = "http://192.168.2.101:8080"
 Global Const $CFG_APIKEY = "changeme"
-Global Const $CFG_VERSION = "0.2.0"
+Global Const $CFG_VERSION = "0.2.3"
 
 Func _Cfg_Server()
     Return $CFG_SERVER

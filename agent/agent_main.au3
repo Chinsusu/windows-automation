@@ -7,16 +7,24 @@
 
 Global Const $AGENT_VERSION = _Cfg_Version()
 Global $gClientId = _ComputeClientId()
+Global $gLastBeat = TimerInit()
 
 If $CmdLineRaw = "/service" Then
     _EnsureScheduledTask()
 EndIf
 
 _Log("Agent start v" & $AGENT_VERSION & ", id=" & $gClientId)
+_Log("server=" & _Cfg_Server())
 
 While 1
     ; Check update (non-blocking stub)
     _Updater_CheckAndMaybeUpdate()
+
+    ; Heartbeat every 60s
+    If TimerDiff($gLastBeat) > 60000 Then
+        _Api_Callback($gClientId, "live", "heartbeat")
+        $gLastBeat = TimerInit()
+    EndIf
 
     ; Long-poll task (stub returns empty if none/err)
     Local $task = _Api_LongPollTask($gClientId)

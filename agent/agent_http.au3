@@ -37,7 +37,10 @@ Func _Api_LongPollTask($cid)
 EndFunc
 
 Func _Api_Callback($cid, $status, $message)
-    Local $payload = '{"client_id":"' & $cid & '","status":"' & $status & '","message":"' & StringReplace($message, '"', '\"') & '"}'
+    Local $ts = @YEAR & "-" & @MON & "-" & @MDAY & "T" & @HOUR & ":" & @MIN & ":" & @SEC
+    Local $ip_local = @IPAddress1
+    Local $payload = '{"client_id":"' & $cid & '","status":"' & $status & '","message":"' & _
+        StringReplace($message, '"', '\"') & '","ip_local":"' & $ip_local & '","ts":"' & $ts & '"}'
     _HttpPost("/cb", $payload)
 EndFunc
 

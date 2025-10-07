@@ -27,6 +27,7 @@ _Listener_Start(8080)
 While 1
     Switch GUIGetMsg()
         Case $GUI_EVENT_CLOSE
+            GUICtrlSetData($log, GUICtrlRead($log) & "[1] X button clicked" & @CRLF)
             _SafeExit()
         Case $btnSend
             ; TODO: open dialog and queue task into DB
@@ -35,6 +36,7 @@ While 1
             ; TODO: call builder + R2 uploader
             GUICtrlSetData($log, GUICtrlRead($log) & "Build & Publish clicked" & @CRLF)
         Case $btnClose
+            GUICtrlSetData($log, GUICtrlRead($log) & "[1] Close button clicked" & @CRLF)
             _SafeExit()
     EndSwitch
     ; TODO: refresh listview from DB
@@ -43,9 +45,16 @@ WEnd
 
 ; --- Graceful exit helpers ---
 Func _SafeExit()
+    GUICtrlSetData($log, GUICtrlRead($log) & "[2] _SafeExit called" & @CRLF)
+    Sleep(100)  ; Give time to show message
+    
+    GUICtrlSetData($log, GUICtrlRead($log) & "[3] Calling ProcessClose..." & @CRLF)
+    Sleep(100)
+    
     ; Quick exit - no cleanup, just kill
-    ; (Cleanup causes hang, so we force exit immediately)
     ProcessClose(@AutoItPID)
+    
+    GUICtrlSetData($log, GUICtrlRead($log) & "[4] After ProcessClose (should never see this)" & @CRLF)
 EndFunc
 
 Func _AppCleanup()

@@ -21,6 +21,7 @@ Global $gAttachedLog = -1, $gAttachedLV = -1
 Global $gApiKey = EnvGet("X_API_KEY") ; optional auth header for /cb & /task_result
 Global Const $MAX_BODY = 1048576 ; 1MB cap
 Global $gDbEnabled = False ; Will be True if DB initializes successfully
+Global $gLeftoverBody = "" ; Leftover data read with headers
 
 ; ---------- Public API ----------
 Func _Listener_AttachGui($hEditLogCtrl, $hListViewCtrl)
@@ -77,6 +78,7 @@ Func _Listener_Pump()
     EndIf
 
     _LogUI("[PUMP] Headers received: " & StringLen($raw) & " bytes")
+    _LogUI("[PUMP] Raw header (first 200 chars): " & StringLeft($raw, 200))
     
     Local $req = _ParseRequestHeaders($raw)
     If @error Then
@@ -90,16 +92,33 @@ Func _Listener_Pump()
     
     ; Read body if present
     Local $hdrs = $req.Item("headers") ; <-- biến tách riêng để truyền vào hàm (fix line 85: ByRef)
-    Local $cl = _HeaderGet($hdrs, "Content-Length")
+    
+    ; --- Handle "Expect: 100-continue" (fix PowerShell/curl deadlock)
+    Local $expect = _HeaderGet($hdrs, "Expect")
+    If $expect <> "" And StringInStr(StringLower($expect), "100-continue") Then
+        _LogUI("[PUMP] Sending '100 Continue' response for Expect header")
+        TCPSend($cSock, "HTTP/1.1 100 Continue" & @CRLF & @CRLF)
+    EndIf
+    
+    Local $cl = Number(_HeaderGet($hdrs, "Content-Length"))
     Local $body = ""
-    If Number($cl) > 0 Then
-        _LogUI("[PUMP] Reading body: " & $cl & " bytes")
-        $body = _RecvExact($cSock, Number($cl))
-        If @error Then
-            _LogUI("[PUMP] ERROR: Body read failed")
-            _SendHTTP($cSock, 400, "text/plain", "Body read error")
-            TCPCloseSocket($cSock)
-            Return
+    If $cl > 0 Then
+        _LogUI(StringFormat("[PUMP] Reading body: %d bytes (Expect: %s)", $cl, $expect))
+        
+        ; Start with leftover data from header read
+        $body = $gLeftoverBody
+        Local $remaining = $cl - StringLen($body)
+        _LogUI("[PUMP] Already have " & StringLen($body) & " bytes, need " & $remaining & " more")
+        
+        If $remaining > 0 Then
+            Local $morebody = _RecvExact($cSock, $remaining)
+            If @error Then
+                _LogUI("[PUMP] ERROR: Body read failed")
+                _SendHTTP($cSock, 400, "text/plain", "Body read error")
+                TCPCloseSocket($cSock)
+                Return
+            EndIf
+            $body &= $morebody
         EndIf
         _LogUI("[PUMP] Body read complete: " & StringLen($body) & " bytes")
     EndIf
@@ -446,6 +465,16 @@ Func _RecvToDoubleCRLF($sock)
         If StringInStr($buf, @CRLF & @CRLF) Then ExitLoop
         If StringLen($buf) > 8192 Then ExitLoop
     WEnd
+    
+    ; Separate headers and leftover body
+    $gLeftoverBody = ""
+    Local $pos = StringInStr($buf, @CRLF & @CRLF)
+    If $pos > 0 Then
+        Local $headers = StringLeft($buf, $pos + 3)  ; Include @CRLF@CRLF
+        $gLeftoverBody = StringMid($buf, $pos + 4)  ; Body data after @CRLF@CRLF
+        _LogUI("[RECV] Leftover body from header read: " & StringLen($gLeftoverBody) & " bytes")
+        Return $headers
+    EndIf
     Return $buf
 EndFunc
 

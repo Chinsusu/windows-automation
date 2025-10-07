@@ -15,10 +15,12 @@
 
 ; ---------- Globals ----------
 Global $gSrvSock = -1, $gPort = 8080
-Global $gDB = 0, $gDbPath = @ScriptDir & "\..\db\automation.db"
+Global $gDB = 0
+Global $gDbPath = StringRegExpReplace(@ScriptDir & "\..\db\automation.db", "\\[^\\]+\\\.\.", "")
 Global $gAttachedLog = -1, $gAttachedLV = -1
 Global $gApiKey = EnvGet("X_API_KEY") ; optional auth header for /cb & /task_result
 Global Const $MAX_BODY = 1048576 ; 1MB cap
+Global $gDbEnabled = False ; Will be True if DB initializes successfully
 
 ; ---------- Public API ----------
 Func _Listener_AttachGui($hEditLogCtrl, $hListViewCtrl)
@@ -63,49 +65,69 @@ Func _Listener_Pump()
     Local $cSock = TCPAccept($gSrvSock)
     If $cSock = -1 Then Return
 
+    _LogUI("[PUMP] Connection accepted")
+    
     ; Read request (headers)
     Local $raw = _RecvToDoubleCRLF($cSock)
     If $raw = "" Then
+        _LogUI("[PUMP] ERROR: Empty headers")
         _SendHTTP($cSock, 400, "text/plain", "Bad Request")
         TCPCloseSocket($cSock)
         Return
     EndIf
 
+    _LogUI("[PUMP] Headers received: " & StringLen($raw) & " bytes")
+    
     Local $req = _ParseRequestHeaders($raw)
     If @error Then
+        _LogUI("[PUMP] ERROR: Parse headers failed")
         _SendHTTP($cSock, 400, "text/plain", "Malformed")
         TCPCloseSocket($cSock)
         Return
     EndIf
 
+    _LogUI("[PUMP] Headers parsed successfully")
+    
     ; Read body if present
     Local $hdrs = $req.Item("headers") ; <-- biến tách riêng để truyền vào hàm (fix line 85: ByRef)
     Local $cl = _HeaderGet($hdrs, "Content-Length")
     Local $body = ""
     If Number($cl) > 0 Then
+        _LogUI("[PUMP] Reading body: " & $cl & " bytes")
         $body = _RecvExact($cSock, Number($cl))
         If @error Then
+            _LogUI("[PUMP] ERROR: Body read failed")
             _SendHTTP($cSock, 400, "text/plain", "Body read error")
             TCPCloseSocket($cSock)
             Return
         EndIf
+        _LogUI("[PUMP] Body read complete: " & StringLen($body) & " bytes")
     EndIf
     $req.Item("body") = $body
 
     ; Dispatch
     Local $path = $req.Item("path")
+    Local $method = $req.Item("method")
+    _LogUI("[REQ] " & $method & " " & $path & " (body: " & StringLen($body) & " bytes)")
+    
     Switch $path
         Case "/health"
             _SendHTTP($cSock, 200, "text/plain", "ok")
 
         Case "/cb"
-            If StringUpper($req.Item("method")) <> "POST" Then
+            _LogUI("[CB] Dispatch - method check")
+            If StringUpper($method) <> "POST" Then
+                _LogUI("[CB] ERROR: Wrong method - " & $method)
                 _SendHTTP($cSock, 405, "text/plain", "Method Not Allowed")
             Else
+                _LogUI("[CB] Dispatch - auth check")
                 If Not _AuthOK($hdrs) Then
+                    _LogUI("[CB] ERROR: Auth failed")
                     _SendHTTP($cSock, 401, "text/plain", "Unauthorized")
                 Else
+                    _LogUI("[CB] Dispatch - calling handler")
                     _HandleCB($req, $cSock)
+                    _LogUI("[CB] Dispatch - handler returned")
                 EndIf
             EndIf
 
@@ -247,17 +269,51 @@ EndFunc
 
 ; ---------- DB ----------
 Func _DB_Startup()
-    _SQLite_Startup()
-    _SQLite_Open($gDbPath, $gDB)
+    _LogUI("[DB] Starting database at: " & $gDbPath)
+    
+    ; Try to initialize SQLite - if it fails, disable DB features
+    Local $ret = _SQLite_Startup()
+    If @error Then
+        _LogUI("[DB] WARNING: SQLite not available (error " & @error & ") - database features disabled")
+        $gDbEnabled = False
+        Return
+    EndIf
+    _LogUI("[DB] SQLite_Startup OK")
+    
+    Local $openResult = _SQLite_Open($gDbPath)
+    If @error Or $openResult = 0 Or $openResult = -1 Then
+        _LogUI("[DB] WARNING: Cannot open database (error " & @error & ") - database features disabled")
+        _SQLite_Shutdown()
+        $gDbEnabled = False
+        Return
+    EndIf
+    
+    $gDB = $openResult
+    _LogUI("[DB] Database opened successfully (handle: " & $gDB & ")")
+    
     Local $sql1 = "CREATE TABLE IF NOT EXISTS clients (" & _
         "client_id TEXT PRIMARY KEY, ip_public TEXT, ip_local TEXT, hostname TEXT, os TEXT, arch TEXT," & _
         "version TEXT, status TEXT, last_message TEXT, last_seen TEXT);"
     Local $sql2 = "CREATE TABLE IF NOT EXISTS tasks (" & _
         "task_id TEXT PRIMARY KEY, client_id TEXT, type TEXT, args TEXT, status TEXT, result TEXT, created_at TEXT, executed_at TEXT);"
+    
+    _LogUI("[DB] Creating tables...")
     _SQLite_Exec($gDB, $sql1)
+    If @error Then
+        _LogUI("[DB] ERROR creating tables - database features disabled")
+        _SQLite_Close($gDB)
+        _SQLite_Shutdown()
+        $gDB = 0
+        $gDbEnabled = False
+        Return
+    EndIf
+    
     _SQLite_Exec($gDB, $sql2)
     _SQLite_Exec($gDB, "CREATE INDEX IF NOT EXISTS idx_tasks_client ON tasks(client_id);")
     _SQLite_Exec($gDB, "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);")
+    
+    $gDbEnabled = True
+    _LogUI("[DB] Database initialized successfully - features ENABLED")
 EndFunc
 
 Func _DB_Shutdown()
@@ -267,9 +323,11 @@ Func _DB_Shutdown()
 EndFunc
 
 Func _DB_UpsertClient($cid, $ip_public, $ip_local, $status, $message, $ts)
+    If Not $gDbEnabled Then Return  ; Skip if DB disabled
+    
     Local $cidq = _Q($cid), $ipq = _Q($ip_public), $ilq = _Q($ip_local), $stq = _Q($status), $msgq = _Q($message), $tsq = _Q($ts)
 
-    ; CHECK tồn tại client
+    ; CHECK if client exists
     Local $a, $iRows, $iCols
     _SQLite_GetTable2d($gDB, "SELECT client_id FROM clients WHERE client_id=" & $cidq, $a, $iRows, $iCols)
     If @error Or $iRows = 0 Then
@@ -286,6 +344,12 @@ Func _DB_UpsertClient($cid, $ip_public, $ip_local, $status, $message, $ts)
 EndFunc
 
 Func _DB_GetNextTask($cid)
+    If Not $gDbEnabled Then
+        Local $empty[0]
+        SetError(1)
+        Return $empty
+    EndIf
+    
     Local $cidq = _Q($cid)
     Local $sql = "SELECT task_id, type, args FROM tasks WHERE client_id=" & $cidq & " AND status='queued' " & _
                  "ORDER BY datetime(created_at) LIMIT 1;"
@@ -307,11 +371,13 @@ Func _DB_GetNextTask($cid)
 EndFunc
 
 Func _DB_MarkTaskSent($task_id)
+    If Not $gDbEnabled Then Return
     Local $tidq = _Q($task_id)
     _SQLite_Exec($gDB, "UPDATE tasks SET status='sent' WHERE task_id=" & $tidq & ";")
 EndFunc
 
 Func _DB_SaveResult($task_id, $ok, $result, $err)
+    If Not $gDbEnabled Then Return
     Local $tidq = _Q($task_id)
     Local $st = "error"
     If $ok Then $st = "done"
@@ -384,16 +450,16 @@ Func _RecvToDoubleCRLF($sock)
 EndFunc
 
 Func _RecvExact($sock, $len)
-    If $len > $MAX_BODY Then SetError(1, 0, "") ; cap
+    If $len > $MAX_BODY Then Return SetError(1, 0, "") ; cap
     Local $buf = ""
     Local $got = 0
     Local $stamp = TimerInit()
     While $got < $len
         Local $need = $len - $got
         Local $chunk = TCPRecv($sock, $need)
-        If @error Then SetError(1, 0, "")
+        If @error Then Return SetError(1, 0, "")
         If $chunk = "" Then
-            If TimerDiff($stamp) > 5000 Then SetError(1, 0, "")
+            If TimerDiff($stamp) > 5000 Then Return SetError(1, 0, "")
             Sleep(10)
             ContinueLoop
         EndIf

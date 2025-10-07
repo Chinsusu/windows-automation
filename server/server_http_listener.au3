@@ -68,60 +68,67 @@ Func _Listener_Pump()
 
     _LogUI("[PUMP] Connection accepted")
     
-    ; Read request (headers)
-    Local $raw = _RecvToDoubleCRLF($cSock)
+    ; --- Read request (headers + leftover)
+    Local $hr = _RecvHeaders($cSock)
+    Local $raw = $hr[0]
+    Local $preBody = $hr[1]
+    
     If $raw = "" Then
-        _LogUI("[PUMP] ERROR: Empty headers")
         _SendHTTP($cSock, 400, "text/plain", "Bad Request")
         TCPCloseSocket($cSock)
         Return
     EndIf
-
-    _LogUI("[PUMP] Headers received: " & StringLen($raw) & " bytes")
-    _LogUI("[PUMP] Raw header (first 200 chars): " & StringLeft($raw, 200))
     
     Local $req = _ParseRequestHeaders($raw)
     If @error Then
-        _LogUI("[PUMP] ERROR: Parse headers failed")
         _SendHTTP($cSock, 400, "text/plain", "Malformed")
         TCPCloseSocket($cSock)
         Return
     EndIf
-
-    _LogUI("[PUMP] Headers parsed successfully")
     
-    ; Read body if present
-    Local $hdrs = $req.Item("headers") ; <-- biến tách riêng để truyền vào hàm (fix line 85: ByRef)
-    
-    ; --- Handle "Expect: 100-continue" (fix PowerShell/curl deadlock)
+    ; --- 100-continue
+    Local $hdrs = $req.Item("headers")
     Local $expect = _HeaderGet($hdrs, "Expect")
     If $expect <> "" And StringInStr(StringLower($expect), "100-continue") Then
-        _LogUI("[PUMP] Sending '100 Continue' response for Expect header")
+        _LogUI("[PUMP] Sending '100 Continue' response")
         TCPSend($cSock, "HTTP/1.1 100 Continue" & @CRLF & @CRLF)
     EndIf
     
-    Local $cl = Number(_HeaderGet($hdrs, "Content-Length"))
+    ; --- Body reader: priority Transfer-Encoding: chunked, else Content-Length
     Local $body = ""
-    If $cl > 0 Then
-        _LogUI(StringFormat("[PUMP] Reading body: %d bytes (Expect: %s)", $cl, $expect))
-        
-        ; Start with leftover data from header read
-        $body = $gLeftoverBody
-        Local $remaining = $cl - StringLen($body)
-        _LogUI("[PUMP] Already have " & StringLen($body) & " bytes, need " & $remaining & " more")
-        
-        If $remaining > 0 Then
-            Local $morebody = _RecvExact($cSock, $remaining)
-            If @error Then
-                _LogUI("[PUMP] ERROR: Body read failed")
-                _SendHTTP($cSock, 400, "text/plain", "Body read error")
-                TCPCloseSocket($cSock)
-                Return
-            EndIf
-            $body &= $morebody
+    Local $te = _HeaderGet($hdrs, "Transfer-Encoding")
+    If $te <> "" And StringInStr(StringLower($te), "chunked") Then
+        _LogUI("[PUMP] Reading chunked body (preBody: " & StringLen($preBody) & " bytes)")
+        $body = _RecvChunked($cSock, $preBody)
+        If @error Then
+            _SendHTTP($cSock, 400, "text/plain", "Chunked read error")
+            TCPCloseSocket($cSock)
+            Return
         EndIf
-        _LogUI("[PUMP] Body read complete: " & StringLen($body) & " bytes")
+        _LogUI("[PUMP] Chunked body complete: " & StringLen($body) & " bytes")
+    Else
+        Local $cl = Number(_HeaderGet($hdrs, "Content-Length"))
+        If $cl > 0 Then
+            ; Already have $preBody, append and only read remaining
+            Local $pb = StringLen($preBody)
+            _LogUI("[PUMP] Reading body: " & $cl & " bytes (preBody: " & $pb & " bytes)")
+            If $pb >= $cl Then
+                $body = StringLeft($preBody, $cl)
+            Else
+                $body = $preBody & _RecvExact($cSock, $cl - $pb)
+                If @error Then
+                    _SendHTTP($cSock, 400, "text/plain", "Body read error")
+                    TCPCloseSocket($cSock)
+                    Return
+                EndIf
+            EndIf
+            _LogUI("[PUMP] Body complete: " & StringLen($body) & " bytes")
+        Else
+            ; No CL, no chunked → empty body
+            $body = $preBody  ; In case client sends a few bytes without CL
+        EndIf
     EndIf
+    
     $req.Item("body") = $body
 
     ; Dispatch
@@ -450,6 +457,36 @@ Func _AuthOK($hdrs)
 EndFunc
 
 ; ----- HTTP parsing/sending -----
+; Returns: [0]=raw headers (string), [1]=leftover body already read (string)
+Func _RecvHeaders($sock)
+    Local $buf = ""
+    Local $stamp = TimerInit()
+    While 1
+        Local $chunk = TCPRecv($sock, 4096)
+        If @error Then ExitLoop
+        If $chunk = "" Then
+            If TimerDiff($stamp) > 5000 Then ExitLoop
+            Sleep(10)
+            ContinueLoop
+        EndIf
+        $buf &= BinaryToString($chunk)
+        Local $p = StringInStr($buf, @CRLF & @CRLF, 0, 1)
+        If $p > 0 Then
+            Local $hdr = StringLeft($buf, $p + 3)  ; headers including \r\n\r\n
+            Local $left = StringMid($buf, $p + 4)  ; leftover body
+            Local $ret[2]
+            $ret[0] = $hdr
+            $ret[1] = $left
+            Return $ret
+        EndIf
+        If StringLen($buf) > 16384 Then ExitLoop  ; prevent overly long headers
+    WEnd
+    Local $ret2[2]
+    $ret2[0] = ""
+    $ret2[1] = ""
+    Return $ret2
+EndFunc
+
 Func _RecvToDoubleCRLF($sock)
     Local $buf = ""
     Local $stamp = TimerInit()
@@ -509,6 +546,43 @@ Func _RecvExact($sock, $len)
     WEnd
     _LogUI("[RECV] Complete - received " & $got & " bytes")
     Return $buf
+EndFunc
+
+; Read chunked transfer encoding; $pre contains data already read with headers
+Func _RecvChunked($sock, $pre)
+    Local $buf = $pre
+    Local $out = ""
+    
+    While 1
+        ; Ensure we have a chunk size line
+        Local $lineEnd = StringInStr($buf, @CRLF, 0, 1)
+        While $lineEnd = 0
+            Local $t = TCPRecv($sock, 4096)
+            If @error Then Return SetError(1, 0, "")
+            If $t = "" Then Sleep(10)
+            $buf &= BinaryToString($t)
+            $lineEnd = StringInStr($buf, @CRLF, 0, 1)
+        WEnd
+        
+        Local $sizeHex = StringLeft($buf, $lineEnd - 1)
+        $buf = StringMid($buf, $lineEnd + 2)
+        Local $size = Dec("0x" & StringStripWS($sizeHex, 3))
+        If $size <= 0 Then ExitLoop  ; chunk 0 => end
+        
+        ; Ensure we have $size bytes + CRLF
+        While StringLen($buf) < $size + 2
+            Local $t2 = TCPRecv($sock, ($size + 2) - StringLen($buf))
+            If @error Then Return SetError(1, 0, "")
+            If $t2 = "" Then Sleep(10)
+            $buf &= BinaryToString($t2)
+        WEnd
+        
+        $out &= StringLeft($buf, $size)
+        ; Skip CRLF after chunk
+        $buf = StringMid($buf, $size + 3)
+    WEnd
+    
+    Return $out
 EndFunc
 
 Func _ParseRequestHeaders($raw)

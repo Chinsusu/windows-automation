@@ -43,8 +43,8 @@ Func _Listener_Start($port = 8080)
     Local $lanIP = _GetLANIP()
     _LogUI("HTTP listener started at 0.0.0.0:" & $gPort & "  (local IP: " & $lanIP & ")")
 
-    ; pump every 50ms
-    AdlibRegister("_Listener_Pump", 50)
+    ; pump every 200ms (was 50ms - too fast, blocked GUI event loop)
+    AdlibRegister("_Listener_Pump", 200)
     Return 1
 EndFunc
 

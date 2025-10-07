@@ -20,18 +20,20 @@ Global $log = GUICtrlCreateEdit("", 10, 520, 1160, 130)
 Global $btnClose = GUICtrlCreateButton("Close", 10, 655, 150, 30)
 GUISetState(@SW_SHOW)
 
-; TEMP: Comment out to test event loop
-; _DB_Init()
-; _Listener_AttachGui($log, $lv)
-; _Listener_Start(8080)
-GUICtrlSetData($log, "[STARTUP] DB and Listener DISABLED for testing" & @CRLF)
+_DB_Init()
+_Listener_AttachGui($log, $lv)
+_Listener_Start(8080)
+
+; File logging for debug
+Global $hLogFile = FileOpen(@ScriptDir & "\..\logs\gui_debug.log", 1)
 
 While 1
     Local $msg = GUIGetMsg()
     
-    ; Debug: log ALL events (comment out after debug)
+    ; Debug: log events to FILE (not GUI to avoid lag)
     If $msg <> 0 Then
-        GUICtrlSetData($log, GUICtrlRead($log) & "[DEBUG] Event: " & $msg & " (Close btn ID: " & $btnClose & ")" & @CRLF)
+        FileWrite($hLogFile, @YEAR & "-" & @MON & "-" & @MDAY & " " & @HOUR & ":" & @MIN & ":" & @SEC & " Event: " & $msg & " (Close btn: " & $btnClose & ")" & @CRLF)
+        FileFlush($hLogFile)
     EndIf
     
     Switch $msg

@@ -336,8 +336,12 @@ Func _EnsureDir($p)
 EndFunc
 
 Func _LogUI($s)
+    ; Only write to file to avoid blocking GUI
     Local $line = _NowTs() & "  " & $s & @CRLF
-    If $gAttachedLog <> -1 Then GUICtrlSetData($gAttachedLog, GUICtrlRead($gAttachedLog) & $line)
+    Local $logFile = @ScriptDir & "\..\logs\listener.log"
+    FileWrite($logFile, $line)
+    ; Skip GUI update - it blocks event loop
+    ; If $gAttachedLog <> -1 Then GUICtrlSetData($gAttachedLog, GUICtrlRead($gAttachedLog) & $line)
 EndFunc
 
 Func _Q($s) ; simple SQL quote

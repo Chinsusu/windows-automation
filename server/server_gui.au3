@@ -20,9 +20,11 @@ Global $log = GUICtrlCreateEdit("", 10, 520, 1160, 130)
 Global $btnClose = GUICtrlCreateButton("Close", 10, 655, 150, 30)
 GUISetState(@SW_SHOW)
 
-_DB_Init()
-_Listener_AttachGui($log, $lv)
-_Listener_Start(8080)
+; TEMP: Comment out to test event loop
+; _DB_Init()
+; _Listener_AttachGui($log, $lv)
+; _Listener_Start(8080)
+GUICtrlSetData($log, "[STARTUP] DB and Listener DISABLED for testing" & @CRLF)
 
 While 1
     Local $msg = GUIGetMsg()

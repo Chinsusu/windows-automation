@@ -14,8 +14,8 @@ Global $btnSend = GUICtrlCreateButton("Send Command", 930, 10, 240, 40)
 Global $btnBuild = GUICtrlCreateButton("Build & Publish", 930, 60, 240, 40)
 Global $log = GUICtrlCreateEdit("", 10, 520, 1160, 160)
 
-; Nút Close (góc dưới bên phải)
-Global $btnClose = GUICtrlCreateButton("Close", 930, 620, 240, 40)
+; Nút Close (góc dưới bên phải) - đặt ở Y=640 để không bị che
+Global $btnClose = GUICtrlCreateButton("Close", 930, 640, 240, 40)
 GUISetState(@SW_SHOW)
 
 _DB_Init()

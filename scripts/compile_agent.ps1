@@ -1,4 +1,4 @@
-Param([string]$Version = "0.2.0")
+Param([string]$Version = "0.3.0")
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $src = Join-Path $root "agent\agent_main.au3"

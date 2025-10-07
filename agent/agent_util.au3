@@ -1,60 +1,79 @@
-; agent_util.au3
 #include-once
 #include <File.au3>
-#include <Date.au3>
 #include <Crypt.au3>
+#include <Date.au3>
 
-; FIX: @ProgramDataDir không tồn tại, dùng đường dẫn cứng hoặc @AppDataCommonDir
-Global Const $LOG_DIR = "C:\ProgramData\AutoAgent"
-Global Const $LOG_PATH = $LOG_DIR & "\agent.log"
+Global Const $AG_LOG_DIR  = @ProgramDataDir & "\AutoAgent"
+Global Const $AG_LOG_FILE = $AG_LOG_DIR & "\agent.log"
 
 Func _EnsureDir($p)
     If Not FileExists($p) Then DirCreate($p)
 EndFunc
 
+Func _NowTs()
+    Return @YEAR & "-" & StringFormat("%02d", @MON) & "-" & StringFormat("%02d", @MDAY) & _
+           "T" & StringFormat("%02d", @HOUR) & ":" & StringFormat("%02d", @MIN) & ":" & StringFormat("%02d", @SEC)
+EndFunc
+
 Func _Log($s)
-    _EnsureDir($LOG_DIR)
-    Local $t = _NowCalc() & " - " & $s & @CRLF
-    FileWrite($LOG_PATH, $t)
+    _EnsureDir($AG_LOG_DIR)
+    Local $line = _NowTs() & "  " & $s & @CRLF
+    FileWrite($AG_LOG_FILE, $line)
 EndFunc
 
 Func _ComputeClientId()
     _Crypt_Startup()
-    ; FIX: dùng @OSArch (AutoIt có macro này), @CPUArch là macro không tồn tại
     Local $raw = @ComputerName & "|" & @OSVersion & "|" & @OSArch
-    Local $bin = StringToBinary($raw, 4)
-    Local $hash = _Crypt_HashData($bin, $CALG_SHA1)
+    Local $hbin = _Crypt_HashData(StringToBinary($raw, 4), $CALG_SHA1)
     _Crypt_Shutdown()
-    ; giữ logic cũ: cắt còn 16 ký tự hex
-    Local $hex = StringTrimLeft($hash, 2) ; nếu là dạng "0x...." -> bỏ 0x
+    ; to hex short 16 chars
+    Local $hex = ""
+    For $i = 1 To StringLen($hbin)
+        $hex &= Hex(Asc(StringMid($hbin, $i, 1)), 2)
+    Next
     Return StringLeft($hex, 16)
 EndFunc
 
-Func _RunCmd($cmd)
-    Local $iPID = Run(@ComSpec & " /c " & $cmd, "", @SW_HIDE, 6) ; 6=STDOUT_CHILD+STDERR_CHILD
+Func _RunCmdCapture($cmd)
+    Local $pid = Run(@ComSpec & " /c " & $cmd, "", @SW_HIDE, 6)
     Local $out = ""
     While 1
-        $out &= StdoutRead($iPID)
+        $out &= StdoutRead($pid)
         If @error Then ExitLoop
-        Sleep(50)
+        Sleep(30)
     WEnd
-    Return $out
+    Return StringStripWS($out, 3)
 EndFunc
 
-; Create Scheduled Task on first run (idempotent best-effort)
-Func _EnsureScheduledTask()
-    Local $cmd = 'schtasks /Query /TN "AutoAgent"'
-    Local $out = _RunCmd($cmd)
-    If StringInStr($out, "ERROR:") Then
-        _RunCmd('schtasks /Create /TN "AutoAgent" /TR "' & @ScriptFullPath & ' /service" /SC ONSTART /RU SYSTEM /RL HIGHEST /F')
-        _RunCmd('schtasks /Create /TN "AutoAgent-Logon" /TR "' & @ScriptFullPath & ' /service" /SC ONLOGON /RU SYSTEM /RL HIGHEST /F')
-    EndIf
+Func _Sha256File($p)
+    _Crypt_Startup()
+    Local $bin = _Crypt_HashFile($p, $CALG_SHA_256)
+    _Crypt_Shutdown()
+    If @error Or $bin = "" Then Return ""
+    Local $hex = ""
+    For $i = 1 To StringLen($bin)
+        $hex &= Hex(Asc(StringMid($bin, $i, 1)), 2)
+    Next
+    Return StringLower($hex)
 EndFunc
 
-Func _Ok($msg)
-    Return $msg
+Func _JsonEsc($s)
+    $s = StringReplace($s, "\\", "\\\\")
+    $s = StringReplace($s, '"', '\"')
+    $s = StringReplace($s, @CRLF, "\\n")
+    $s = StringReplace($s, @LF, "\\n")
+    $s = StringReplace($s, @CR, "\\r")
+    Return $s
 EndFunc
 
-Func _Err($msg)
-    Return "ERR:" & $msg
+Func _JsonGetStr($json, $key)
+    Local $m = StringRegExp($json, '"' & $key & '"\s*:\s*"(.*?)"', 1)
+    If @error Or UBound($m) = 0 Then Return ""
+    Return $m[0]
+EndFunc
+
+Func _JsonGetNum($json, $key)
+    Local $m = StringRegExp($json, '"' & $key & '"\s*:\s*([-0-9\.]+)', 1)
+    If @error Or UBound($m) = 0 Then Return 0
+    Return Number($m[0])
 EndFunc

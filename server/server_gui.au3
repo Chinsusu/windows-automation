@@ -13,7 +13,8 @@ Global $log = GUICtrlCreateEdit("", 10, 520, 1160, 160)
 GUISetState(@SW_SHOW)
 
 _DB_Init()
-_Listener_Start(8080) ; stub
+_Listener_AttachGui($log, $lv)
+_Listener_Start(8080)
 
 While 1
     Switch GUIGetMsg()

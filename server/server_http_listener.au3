@@ -143,7 +143,7 @@ Func _HandleCB(ByRef $req, $cSock)
     Local $message = _JsonGetStr($req.body, "message")
     Local $ip_local = _JsonGetStr($req.body, "ip_local")
     Local $ts = _JsonGetStr($req.body, "ts")
-    If $ts = "" Then $ts = _NowCalc()
+    If $ts = "" Then $ts = _GetTimestamp()
 
     If $cid = "" Then
         _SendHTTP($cSock, 400, "text/plain", "Missing client_id")
@@ -280,7 +280,7 @@ Func _DB_SaveResult($task_id, $ok, $result, $err)
     Local $tidq = _Q($task_id)
     Local $st = $ok ? "done" : "error"
     Local $resq = _Q($result), $erq = _Q($err)
-    Local $now = _Q(_NowCalc())
+    Local $now = _Q(_GetTimestamp())
     _SQLite_Exec($gDB, "UPDATE tasks SET status='" & $st & "', result=" & $resq & ", executed_at=" & $now & " WHERE task_id=" & $tidq & ";")
 EndFunc
 
@@ -290,7 +290,7 @@ Func _EnsureDir($p)
 EndFunc
 
 Func _LogUI($s)
-    Local $line = _NowCalc() & "  " & $s & @CRLF
+    Local $line = _GetTimestamp() & "  " & $s & @CRLF
     If $gAttachedLog <> -1 Then GUICtrlSetData($gAttachedLog, GUICtrlRead($gAttachedLog) & $line)
     ; (Optional) update ListView outside this file if muốn
 EndFunc
@@ -448,13 +448,20 @@ EndFunc
 Func _SendHTTP($sock, $code, $ctype, $body)
     Local $status = "200 OK"
     Switch $code
-        Case 200: $status = "200 OK"
-        Case 204: $status = "204 No Content"
-        Case 400: $status = "400 Bad Request"
-        Case 401: $status = "401 Unauthorized"
-        Case 404: $status = "404 Not Found"
-        Case 405: $status = "405 Method Not Allowed"
-        Case Else: $status = $code & " OK"
+        Case 200
+            $status = "200 OK"
+        Case 204
+            $status = "204 No Content"
+        Case 400
+            $status = "400 Bad Request"
+        Case 401
+            $status = "401 Unauthorized"
+        Case 404
+            $status = "404 Not Found"
+        Case 405
+            $status = "405 Method Not Allowed"
+        Case Else
+            $status = $code & " OK"
     EndSwitch
     Local $hdr = "HTTP/1.1 " & $status & @CRLF & _
                  "Content-Type: " & $ctype & @CRLF & _
@@ -470,7 +477,7 @@ Func _SendEmpty($sock, $code)
     TCPSend($sock, $hdr)
 EndFunc
 
-Func _NowCalc()
+Func _GetTimestamp()
     Return @YEAR & "-" & @MON & "-" & @MDAY & "T" & @HOUR & ":" & @MIN & ":" & @SEC
 EndFunc
 

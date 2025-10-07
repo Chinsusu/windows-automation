@@ -454,18 +454,31 @@ Func _RecvExact($sock, $len)
     Local $buf = ""
     Local $got = 0
     Local $stamp = TimerInit()
+    Local $loopCount = 0
     While $got < $len
         Local $need = $len - $got
         Local $chunk = TCPRecv($sock, $need)
-        If @error Then Return SetError(1, 0, "")
+        If @error Then
+            _LogUI("[RECV] TCPRecv error: " & @error)
+            Return SetError(1, 0, "")
+        EndIf
         If $chunk = "" Then
-            If TimerDiff($stamp) > 5000 Then Return SetError(1, 0, "")
+            $loopCount += 1
+            If Mod($loopCount, 100) = 0 Then
+                _LogUI("[RECV] Waiting for data... got=" & $got & " need=" & ($len - $got) & " elapsed=" & Int(TimerDiff($stamp)/1000) & "s")
+            EndIf
+            If TimerDiff($stamp) > 5000 Then
+                _LogUI("[RECV] Timeout after 5s - got " & $got & "/" & $len & " bytes")
+                Return SetError(1, 0, "")
+            EndIf
             Sleep(10)
             ContinueLoop
         EndIf
         $buf &= BinaryToString($chunk)
         $got = StringLen($buf)
+        _LogUI("[RECV] Received chunk: " & StringLen(BinaryToString($chunk)) & " bytes, total: " & $got & "/" & $len)
     WEnd
+    _LogUI("[RECV] Complete - received " & $got & " bytes")
     Return $buf
 EndFunc
 

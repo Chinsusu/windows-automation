@@ -83,7 +83,7 @@ Global $gLastHash = ""
 
 Func _UI_RefreshClients()
     Local $a, $rows
-    If Not IsDeclared("gDB") Then Return ; listener hasn't opened DB yet
+    ; CSV storage doesn't need initialization check
     _DB_GetClientsForUI($a, $rows)
     If $rows <= 0 Then
         _GUICtrlListView_DeleteAllItems($lv)
@@ -93,7 +93,10 @@ Func _UI_RefreshClients()
     ; Create simple hash from client_id+status+last_seen to detect changes
     Local $h = ""
     For $i = 1 To $rows
-        $h &= $a[$i][0] & "|" & $a[$i][5] & "|" & $a[$i][7] & ";"
+        Local $cid = ($i < UBound($a) And 0 < UBound($a, 2)) ? $a[$i][0] : ""
+        Local $st = ($i < UBound($a) And 5 < UBound($a, 2)) ? $a[$i][5] : ""
+        Local $ls = ($i < UBound($a) And 7 < UBound($a, 2)) ? $a[$i][7] : ""
+        $h &= $cid & "|" & $st & "|" & $ls & ";"
     Next
     If $h = $gLastHash Then Return
     $gLastHash = $h

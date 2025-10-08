@@ -865,32 +865,21 @@ EndFunc
 
 ; Convert EarnApp URL from long to short format
 ; Input: https://earnapp.com/dashboard/signin?redirect=%2Fdashboard%2Flink%2Fsdk-win-XXXXX
-; Output: https://earnapp.com/r/sdk-win-XXXXX
+; Output: https://earnapp.com/dashboard/r/sdk-win-XXXXX  
 Func _ConvertEarnAppURL($url)
-    ; Check if URL contains /dashboard/signin?redirect=
-    If StringInStr($url, "/dashboard/signin?redirect=") Then
-        ; Extract the redirect parameter value
-        Local $pattern = "redirect=([^&]+)"
-        Local $matches = StringRegExp($url, $pattern, 1)
+    ; Check if URL contains earnapp.com and has sdk- pattern
+    If StringInStr($url, "earnapp.com") And StringInStr($url, "sdk-") Then
+        ; Extract everything after "sdk-" (including "sdk-")
+        Local $sdkPattern = "(sdk-[a-f0-9]+)"
+        Local $sdkMatches = StringRegExp($url, $sdkPattern, 1)
         
-        If Not @error And UBound($matches) > 0 Then
-            Local $redirectPath = $matches[0]
+        If Not @error And UBound($sdkMatches) > 0 Then
+            Local $sdkCode = $sdkMatches[0]
             
-            ; URL decode %2F to /
-            $redirectPath = StringReplace($redirectPath, "%2F", "/")
-            
-            ; Extract sdk-win-XXXXX from /dashboard/link/sdk-win-XXXXX
-            Local $sdkPattern = "(sdk-win-[a-f0-9]+)"
-            Local $sdkMatches = StringRegExp($redirectPath, $sdkPattern, 1)
-            
-            If Not @error And UBound($sdkMatches) > 0 Then
-                Local $sdkCode = $sdkMatches[0]
-                
-                ; Build short URL
-                Local $shortURL = "https://earnapp.com/r/" & $sdkCode
-                _LogUI("[ConvertURL] " & $url & " -> " & $shortURL)
-                Return $shortURL
-            EndIf
+            ; Build new URL: keep https://earnapp.com/dashboard/ + r/ + sdk-code
+            Local $shortURL = "https://earnapp.com/dashboard/r/" & $sdkCode
+            _LogUI("[ConvertURL] " & $url & " -> " & $shortURL)
+            Return $shortURL
         EndIf
     EndIf
     

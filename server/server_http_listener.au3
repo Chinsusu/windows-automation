@@ -903,7 +903,7 @@ Func _ConvertEarnAppURL($url)
     ; Check if URL contains earnapp.com and has sdk- pattern
     If StringInStr($url, "earnapp.com") And StringInStr($url, "sdk-") Then
         ; Extract everything after "sdk-" (including "sdk-")
-        Local $sdkPattern = "(sdk-[a-f0-9]+)"
+        Local $sdkPattern = "(sdk-[a-zA-Z0-9-]+)"
         Local $sdkMatches = StringRegExp($url, $sdkPattern, 1)
         
         If Not @error And UBound($sdkMatches) > 0 Then

@@ -186,21 +186,37 @@ Func _SendCommandDialog()
 EndFunc
 
 Func _GetClientIdByIP($ip)
-    ; Read clients.csv to find client_id by IP
-    Local $file = @ScriptDir & "\..\db\clients.csv"
+    ; Read clients.json to find client_id by IP
+    Local $file = @ScriptDir & "\..\db\clients.json"
     If Not FileExists($file) Then Return ""
     
-    Local $aLines
-    _FileReadToArray($file, $aLines)
-    If @error Then Return ""
+    Local $json = _ReadFile($file)
+    If $json = "" Or $json = "[]" Then Return ""
     
-    ; Skip header row, search for IP
-    For $i = 2 To $aLines[0]
-        Local $cols = StringSplit($aLines[$i], ",", 2)
-        If UBound($cols) >= 3 Then
-            ; Check both ip_public and ip_local (columns 1 and 2)
-            If $cols[1] = $ip Or $cols[2] = $ip Then
-                Return $cols[0]  ; client_id
+    ; Simple JSON parsing - find objects with matching ip_local or ip_public
+    Local $searchPatterns[2] = ['"ip_local":"' & $ip & '"', '"ip_public":"' & $ip & '"']
+    
+    For $p = 0 To 1
+        Local $pos = StringInStr($json, $searchPatterns[$p])
+        If $pos > 0 Then
+            ; Find the client_id in the same object
+            ; Look backwards to find the start of this object
+            Local $objStart = 0
+            For $i = $pos To 1 Step -1
+                If StringMid($json, $i, 1) = "{" Then
+                    $objStart = $i
+                    ExitLoop
+                EndIf
+            Next
+            
+            If $objStart > 0 Then
+                ; Extract client_id from this object
+                Local $cidPattern = '"client_id":"(.*?)"'
+                Local $objSection = StringMid($json, $objStart, $pos - $objStart + 50)
+                Local $matches = StringRegExp($objSection, $cidPattern, 1)
+                If Not @error And UBound($matches) > 0 Then
+                    Return $matches[0]
+                EndIf
             EndIf
         EndIf
     Next
@@ -369,4 +385,14 @@ Func _UI_RefreshClients()
     Next
     
     _GUICtrlListView_EndUpdate($lv)
+EndFunc
+
+; Helper function to read file contents
+Func _ReadFile($p)
+    If Not FileExists($p) Then Return ""
+    Local $h = FileOpen($p, 0)
+    If $h = -1 Then Return ""
+    Local $d = FileRead($h)
+    FileClose($h)
+    Return $d
 EndFunc

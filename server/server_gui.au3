@@ -1,6 +1,7 @@
 ; server_gui.au3
 #include <GUIConstantsEx.au3>
 #include <GuiListView.au3>
+#include <GuiMenu.au3>
 #include <WindowsConstants.au3>
 #include <File.au3>
 #include <Clipboard.au3>
@@ -201,11 +202,47 @@ Func _ListView_WM_NOTIFY($hWnd, $iMsg, $wParam, $lParam)
                         If $sMessage <> "" Then
                             ClipPut($sMessage)
                             ; Show brief tooltip or status
-                            ToolTip("Message copied to clipboard!", MouseGetPos(0), MouseGetPos(1) - 30)
-                            AdlibRegister("_HideTooltip", 1500)
+                            ToolTip("✓ Copied: " & StringLeft($sMessage, 50) & "...", MouseGetPos(0), MouseGetPos(1) - 30)
+                            AdlibRegister("_HideTooltip", 2000)
                             
                             ; Also log to GUI log area
                             GUICtrlSetData($log, GUICtrlRead($log) & "[COPY] " & $sMessage & @CRLF)
+                        EndIf
+                    EndIf
+                    
+                Case $NM_RCLICK  ; Right click - show context menu
+                    Local $tInfo = DllStructCreate($tagNMITEMACTIVATE, $lParam)
+                    Local $iItem = DllStructGetData($tInfo, "Index")
+                    
+                    If $iItem >= 0 Then
+                        ; Get message from clicked row
+                        Local $sMessage = _GUICtrlListView_GetItemText($lv, $iItem, 6)
+                        If $sMessage <> "" Then
+                            ; Show context menu
+                            Local $hMenu = _GUICtrlMenu_CreatePopup()
+                            _GUICtrlMenu_InsertMenuItem($hMenu, 0, "Copy Message", 1000)
+                            _GUICtrlMenu_InsertMenuItem($hMenu, 1, "Copy Full Row", 1001)
+                            
+                            Local $iRet = _GUICtrlMenu_TrackPopupMenu($hMenu, $hWndFrom, -1, -1, 1, 1, 2)
+                            
+                            Switch $iRet
+                                Case 1000  ; Copy Message
+                                    ClipPut($sMessage)
+                                    ToolTip("✓ Message copied!", MouseGetPos(0), MouseGetPos(1) - 30)
+                                    AdlibRegister("_HideTooltip", 1500)
+                                    GUICtrlSetData($log, GUICtrlRead($log) & "[COPY] " & $sMessage & @CRLF)
+                                    
+                                Case 1001  ; Copy Full Row
+                                    Local $sFullRow = ""
+                                    For $c = 0 To 7
+                                        $sFullRow &= _GUICtrlListView_GetItemText($lv, $iItem, $c) & @TAB
+                                    Next
+                                    ClipPut($sFullRow)
+                                    ToolTip("✓ Full row copied!", MouseGetPos(0), MouseGetPos(1) - 30)
+                                    AdlibRegister("_HideTooltip", 1500)
+                            EndSwitch
+                            
+                            _GUICtrlMenu_DestroyMenu($hMenu)
                         EndIf
                     EndIf
             EndSwitch

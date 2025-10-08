@@ -93,14 +93,14 @@ Func _UI_RefreshClients()
     ; Create simple hash from client_id+status+last_seen to detect changes
     Local $h = ""
     For $i = 1 To $rows
-        Local $cid = ($i < UBound($a) And 0 < UBound($a, 2)) ? $a[$i][0] : ""
-        Local $st = ($i < UBound($a) And 5 < UBound($a, 2)) ? $a[$i][5] : ""
-        Local $ls = ($i < UBound($a) And 7 < UBound($a, 2)) ? $a[$i][7] : ""
-        $h &= $cid & "|" & $st & "|" & $ls & ";"
+        $h &= $a[$i][0] & "|" & $a[$i][5] & "|" & $a[$i][7] & ";"
     Next
+    
+    ; Only refresh if data changed
     If $h = $gLastHash Then Return
     $gLastHash = $h
 
+    ; Update ListView
     _GUICtrlListView_BeginUpdate($lv)
     _GUICtrlListView_DeleteAllItems($lv)
 

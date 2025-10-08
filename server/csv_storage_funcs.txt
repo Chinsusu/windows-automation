@@ -1,0 +1,95 @@
+; CSV Storage Functions - paste into server_http_listener.au3 after _DB_Shutdown()
+
+Func _DB_UpsertClient($cid, $ip_public, $ip_local, $status, $message, $ts)
+    ; Read existing clients
+    Local $aClients
+    _FileReadToArray($gClientsFile, $aClients)
+    If @error Then Return
+    
+    ; Find if client exists (skip header row 0)
+    Local $found = False, $foundIdx = -1
+    For $i = 1 To $aClients[0]
+        Local $cols = StringSplit($aClients[$i], ",", 2)
+        If UBound($cols) > 0 And $cols[0] = $cid Then
+            $found = True
+            $foundIdx = $i
+            ExitLoop
+        EndIf
+    Next
+    
+    ; Build CSV line: client_id,ip_public,ip_local,hostname,os,version,status,last_message,last_seen
+    Local $line = _CSVEscape($cid) & "," & _CSVEscape($ip_public) & "," & _CSVEscape($ip_local) & ",,," & _
+                  "," & _CSVEscape($status) & "," & _CSVEscape($message) & "," & _CSVEscape($ts)
+    
+    If $found Then
+        ; Update existing
+        $aClients[$foundIdx] = $line
+        _FileWriteFromArray($gClientsFile, $aClients, 1)
+    Else
+        ; Append new
+        FileWrite($gClientsFile, $line & @CRLF)
+    EndIf
+EndFunc
+
+Func _DB_GetClientsForUI(ByRef $out, ByRef $rows)
+    Local $aClients
+    _FileReadToArray($gClientsFile, $aClients)
+    If @error Or $aClients[0] < 1 Then
+        $rows = 0
+        Local $empty[0][0]
+        $out = $empty
+        Return 0
+    EndIf
+    
+    ; Build 2D array: row 0 = header, data from row 1
+    Local $data[$aClients[0] + 1][8]
+    $data[0][0] = "client_id"
+    $data[0][1] = "ip"
+    $data[0][2] = "hostname"
+    $data[0][3] = "os"
+    $data[0][4] = "version"
+    $data[0][5] = "status"
+    $data[0][6] = "last_message"
+    $data[0][7] = "last_seen"
+    
+    For $i = 1 To $aClients[0]
+        Local $cols = StringSplit($aClients[$i], ",", 2)
+        If UBound($cols) >= 9 Then
+            $data[$i][0] = $cols[0]  ; client_id
+            $data[$i][1] = $cols[2] <> "" ? $cols[2] : $cols[1]  ; ip (prefer ip_local)
+            $data[$i][2] = $cols[3]  ; hostname
+            $data[$i][3] = $cols[4]  ; os
+            $data[$i][4] = $cols[5]  ; version
+            $data[$i][5] = $cols[6]  ; status
+            $data[$i][6] = $cols[7]  ; last_message
+            $data[$i][7] = $cols[8]  ; last_seen
+        EndIf
+    Next
+    
+    $out = $data
+    $rows = $aClients[0]
+    Return $rows
+EndFunc
+
+Func _DB_GetNextTask($cid)
+    ; For now, return empty (no tasks queued)
+    Local $empty[0]
+    SetError(1)
+    Return $empty
+EndFunc
+
+Func _DB_MarkTaskSent($task_id)
+    ; Placeholder
+EndFunc
+
+Func _DB_SaveResult($task_id, $ok, $result, $err)
+    ; Placeholder
+EndFunc
+
+Func _CSVEscape($s)
+    ; Simple CSV escape: if contains comma or quote, wrap in quotes and escape quotes
+    If StringInStr($s, ",") Or StringInStr($s, '"') Then
+        Return '"' & StringReplace($s, '"', '""') & '"'
+    EndIf
+    Return $s
+EndFunc

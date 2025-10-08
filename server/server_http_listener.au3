@@ -10,17 +10,15 @@
 #include <Date.au3>
 #include <String.au3>
 #include <Inet.au3>
-#include <SQLite.au3>
-#include <SQLite.dll.au3>
+#include <File.au3>
 
 ; ---------- Globals ----------
 Global $gSrvSock = -1, $gPort = 8080
-Global $gDB = 0
-Global $gDbPath = StringRegExpReplace(@ScriptDir & "\..\db\automation.db", "\\[^\\]+\\\.\.", "")
+Global $gClientsFile = @ScriptDir & "\..\db\clients.csv"
+Global $gTasksFile = @ScriptDir & "\..\db\tasks.csv"
 Global $gAttachedLog = -1, $gAttachedLV = -1
 Global $gApiKey = EnvGet("X_API_KEY") ; optional auth header for /cb & /task_result
 Global Const $MAX_BODY = 1048576 ; 1MB cap
-Global $gDbEnabled = False ; Will be True if DB initializes successfully
 Global $gLeftoverBody = "" ; Leftover data read with headers
 
 ; ---------- Public API ----------
@@ -293,150 +291,128 @@ Func _HandleManifest($cSock)
     _SendHTTP($cSock, 200, "application/json", $m)
 EndFunc
 
-; ---------- DB ----------
+; ---------- CSV Storage ----------
 Func _DB_Startup()
-    _LogUI("[DB] Starting database at: " & $gDbPath)
+    _LogUI("[CSV] Initializing CSV storage")
     
-    ; Try to initialize SQLite - if it fails, disable DB features
-    Local $ret = _SQLite_Startup()
-    If @error Then
-        _LogUI("[DB] WARNING: SQLite not available (error " & @error & ") - database features disabled")
-        $gDbEnabled = False
-        Return
-    EndIf
-    _LogUI("[DB] SQLite_Startup OK")
-    
-    Local $openResult = _SQLite_Open($gDbPath)
-    If @error Or $openResult = 0 Or $openResult = -1 Then
-        _LogUI("[DB] WARNING: Cannot open database (error " & @error & ") - database features disabled")
-        _SQLite_Shutdown()
-        $gDbEnabled = False
-        Return
+    ; Create clients.csv with header if not exists
+    If Not FileExists($gClientsFile) Then
+        Local $h = FileOpen($gClientsFile, 2) ; overwrite mode
+        If $h <> -1 Then
+            FileWrite($h, "client_id,ip_public,ip_local,hostname,os,version,status,last_message,last_seen" & @CRLF)
+            FileClose($h)
+        EndIf
     EndIf
     
-    $gDB = $openResult
-    _LogUI("[DB] Database opened successfully (handle: " & $gDB & ")")
-    
-    Local $sql1 = "CREATE TABLE IF NOT EXISTS clients (" & _
-        "client_id TEXT PRIMARY KEY, ip_public TEXT, ip_local TEXT, hostname TEXT, os TEXT, arch TEXT," & _
-        "version TEXT, status TEXT, last_message TEXT, last_seen TEXT);"
-    Local $sql2 = "CREATE TABLE IF NOT EXISTS tasks (" & _
-        "task_id TEXT PRIMARY KEY, client_id TEXT, type TEXT, args TEXT, status TEXT, result TEXT, created_at TEXT, executed_at TEXT);"
-    
-    _LogUI("[DB] Creating tables...")
-    _SQLite_Exec($gDB, $sql1)
-    If @error Then
-        _LogUI("[DB] ERROR creating tables - database features disabled")
-        _SQLite_Close($gDB)
-        _SQLite_Shutdown()
-        $gDB = 0
-        $gDbEnabled = False
-        Return
+    ; Create tasks.csv with header if not exists
+    If Not FileExists($gTasksFile) Then
+        Local $h = FileOpen($gTasksFile, 2)
+        If $h <> -1 Then
+            FileWrite($h, "task_id,client_id,type,args,status,result,created_at,executed_at" & @CRLF)
+            FileClose($h)
+        EndIf
     EndIf
     
-    _SQLite_Exec($gDB, $sql2)
-    _SQLite_Exec($gDB, "CREATE INDEX IF NOT EXISTS idx_tasks_client ON tasks(client_id);")
-    _SQLite_Exec($gDB, "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);")
-    
-    $gDbEnabled = True
-    _LogUI("[DB] Database initialized successfully - features ENABLED")
+    _LogUI("[CSV] Storage initialized")
 EndFunc
 
 Func _DB_Shutdown()
-    If $gDB <> 0 Then _SQLite_Close($gDB)
-    $gDB = 0
-    _SQLite_Shutdown()
+    ; Nothing to cleanup for CSV
 EndFunc
 
 Func _DB_UpsertClient($cid, $ip_public, $ip_local, $status, $message, $ts)
-    If Not $gDbEnabled Then Return  ; Skip if DB disabled
+    ; Read existing clients
+    Local $aClients
+    _FileReadToArray($gClientsFile, $aClients)
+    If @error Then Return
     
-    Local $cidq = _Q($cid), $ipq = _Q($ip_public), $ilq = _Q($ip_local), $stq = _Q($status), $msgq = _Q($message), $tsq = _Q($ts)
-
-    ; CHECK if client exists
-    Local $a, $iRows, $iCols
-    _SQLite_GetTable2d($gDB, "SELECT client_id FROM clients WHERE client_id=" & $cidq, $a, $iRows, $iCols)
-    If @error Or $iRows = 0 Then
-        ; INSERT
-        Local $sqlIns = "INSERT INTO clients(client_id,ip_public,ip_local,status,last_message,last_seen) VALUES(" & _
-                        $cidq & "," & $ipq & "," & $ilq & "," & $stq & "," & $msgq & "," & $tsq & ");"
-        _SQLite_Exec($gDB, $sqlIns)
+    ; Find if client exists (skip header row 0)
+    Local $found = False, $foundIdx = -1
+    For $i = 1 To $aClients[0]
+        Local $cols = StringSplit($aClients[$i], ",", 2)
+        If UBound($cols) > 0 And $cols[0] = $cid Then
+            $found = True
+            $foundIdx = $i
+            ExitLoop
+        EndIf
+    Next
+    
+    ; Build CSV line: client_id,ip_public,ip_local,hostname,os,version,status,last_message,last_seen
+    Local $line = _CSVEscape($cid) & "," & _CSVEscape($ip_public) & "," & _CSVEscape($ip_local) & ",,," & _
+                  "," & _CSVEscape($status) & "," & _CSVEscape($message) & "," & _CSVEscape($ts)
+    
+    If $found Then
+        ; Update existing
+        $aClients[$foundIdx] = $line
+        _FileWriteFromArray($gClientsFile, $aClients, 1)
     Else
-        ; UPDATE
-        Local $sqlUpd = "UPDATE clients SET ip_public=" & $ipq & ", ip_local=" & $ilq & ", status=" & $stq & _
-                        ", last_message=" & $msgq & ", last_seen=" & $tsq & " WHERE client_id=" & $cidq & ";"
-        _SQLite_Exec($gDB, $sqlUpd)
+        ; Append new
+        FileWrite($gClientsFile, $line & @CRLF)
     EndIf
 EndFunc
 
 Func _DB_GetNextTask($cid)
-    If Not $gDbEnabled Then
-        Local $empty[0]
-        SetError(1)
-        Return $empty
-    EndIf
-    
-    Local $cidq = _Q($cid)
-    Local $sql = "SELECT task_id, type, args FROM tasks WHERE client_id=" & $cidq & " AND status='queued' " & _
-                 "ORDER BY datetime(created_at) LIMIT 1;"
-
-    Local $a, $iRows, $iCols
-    _SQLite_GetTable2d($gDB, $sql, $a, $iRows, $iCols)
-    If @error Or $iRows = 0 Then
-        Local $empty[0]
-        SetError(1)
-        Return $empty
-    EndIf
-
-    ; _SQLite_GetTable2d trả 2D array, hàng 0 là header → dữ liệu ở hàng 1
-    Local $row[3]
-    $row[0] = $a[1][0] ; task_id
-    $row[1] = $a[1][1] ; type
-    $row[2] = $a[1][2] ; args
-    Return $row
+    ; Placeholder - no tasks for now
+    Local $empty[0]
+    SetError(1)
+    Return $empty
 EndFunc
 
 Func _DB_MarkTaskSent($task_id)
-    If Not $gDbEnabled Then Return
-    Local $tidq = _Q($task_id)
-    _SQLite_Exec($gDB, "UPDATE tasks SET status='sent' WHERE task_id=" & $tidq & ";")
+    ; Placeholder
 EndFunc
 
 Func _DB_SaveResult($task_id, $ok, $result, $err)
-    If Not $gDbEnabled Then Return
-    Local $tidq = _Q($task_id)
-    Local $st = "error"
-    If $ok Then $st = "done"
-    Local $resq = _Q($result), $erq = _Q($err)
-    Local $now = _Q(_NowTs())
-    _SQLite_Exec($gDB, "UPDATE tasks SET status='" & $st & "', result=" & $resq & ", executed_at=" & $now & " WHERE task_id=" & $tidq & ";")
+    ; Placeholder
 EndFunc
 
 ; Get clients list for GUI ListView (returns 2D array)
 Func _DB_GetClientsForUI(ByRef $out, ByRef $rows)
-    If Not $gDbEnabled Then
+    Local $aClients
+    _FileReadToArray($gClientsFile, $aClients)
+    If @error Or $aClients[0] < 1 Then
         $rows = 0
         Local $empty[0][0]
         $out = $empty
         Return 0
     EndIf
     
-    Local $sql = _
-        "SELECT client_id, " & _
-        "COALESCE(ip_local, ip_public) AS ip, " & _
-        "IFNULL(hostname,''), IFNULL(os,''), IFNULL(version,''), " & _
-        "IFNULL(status,''), IFNULL(last_message,''), IFNULL(last_seen,'') " & _
-        "FROM clients ORDER BY datetime(last_seen) DESC;"
-
-    Local $cols
-    _SQLite_GetTable2d($gDB, $sql, $out, $rows, $cols)
-    If @error Then
-        $rows = 0
-        Local $empty[0][0]
-        $out = $empty
-        Return 0
-    EndIf
+    ; Build 2D array: row 0 = header, data from row 1
+    Local $data[$aClients[0] + 1][8]
+    $data[0][0] = "client_id"
+    $data[0][1] = "ip"
+    $data[0][2] = "hostname"
+    $data[0][3] = "os"
+    $data[0][4] = "version"
+    $data[0][5] = "status"
+    $data[0][6] = "last_message"
+    $data[0][7] = "last_seen"
+    
+    For $i = 1 To $aClients[0]
+        Local $cols = StringSplit($aClients[$i], ",", 2)
+        If UBound($cols) >= 9 Then
+            $data[$i][0] = $cols[0]  ; client_id
+            $data[$i][1] = $cols[2] <> "" ? $cols[2] : $cols[1]  ; ip (prefer ip_local)
+            $data[$i][2] = $cols[3]  ; hostname
+            $data[$i][3] = $cols[4]  ; os
+            $data[$i][4] = $cols[5]  ; version
+            $data[$i][5] = $cols[6]  ; status
+            $data[$i][6] = $cols[7]  ; last_message
+            $data[$i][7] = $cols[8]  ; last_seen
+        EndIf
+    Next
+    
+    $out = $data
+    $rows = $aClients[0]
     Return $rows
+EndFunc
+
+Func _CSVEscape($s)
+    ; Simple CSV escape: if contains comma or quote, wrap in quotes and escape quotes
+    If StringInStr($s, ",") Or StringInStr($s, '"') Then
+        Return '"' & StringReplace($s, '"', '""') & '"'
+    EndIf
+    Return $s
 EndFunc
 
 ; ---------- Helpers ----------

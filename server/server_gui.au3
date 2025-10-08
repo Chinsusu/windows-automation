@@ -82,37 +82,34 @@ EndFunc
 Global $gLastHash = ""
 
 Func _UI_RefreshClients()
-    Local $a, $rows
-    ; CSV storage doesn't need initialization check
+    Local $a, $rows, $i, $hash, $idx
+    
     _DB_GetClientsForUI($a, $rows)
     If $rows <= 0 Then
         _GUICtrlListView_DeleteAllItems($lv)
         Return
     EndIf
 
-    ; Create simple hash from client_id+status+last_seen to detect changes
-    Local $h = ""
+    $hash = ""
     For $i = 1 To $rows
-        $h &= $a[$i][0] & "|" & $a[$i][5] & "|" & $a[$i][7] & ";"
+        $hash = $hash & $a[$i][0] & "|" & $a[$i][5] & "|" & $a[$i][7] & ";"
     Next
     
-    ; Only refresh if data changed
-    If ($h == $gLastHash) Then Return
-    $gLastHash = $h
+    If StringCompare($hash, $gLastHash) = 0 Then Return
+    $gLastHash = $hash
 
-    ; Update ListView
     _GUICtrlListView_BeginUpdate($lv)
     _GUICtrlListView_DeleteAllItems($lv)
 
     For $i = 1 To $rows
-        Local $idx = _GUICtrlListView_AddItem($lv, $a[$i][0])           ; ClientID
-        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][1], 1)            ; IP
-        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][2], 2)            ; Hostname
-        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][3], 3)            ; OS
-        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][4], 4)            ; Version
-        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][5], 5)            ; Status
-        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][6], 6)            ; Last Message
-        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][7], 7)            ; Last Seen
+        $idx = _GUICtrlListView_AddItem($lv, $a[$i][0])
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][1], 1)
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][2], 2)
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][3], 3)
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][4], 4)
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][5], 5)
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][6], 6)
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][7], 7)
     Next
     _GUICtrlListView_EndUpdate($lv)
 EndFunc

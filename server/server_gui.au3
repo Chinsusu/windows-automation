@@ -386,13 +386,3 @@ Func _UI_RefreshClients()
     
     _GUICtrlListView_EndUpdate($lv)
 EndFunc
-
-; Helper function to read file contents
-Func _ReadFile($p)
-    If Not FileExists($p) Then Return ""
-    Local $h = FileOpen($p, 0)
-    If $h = -1 Then Return ""
-    Local $d = FileRead($h)
-    FileClose($h)
-    Return $d
-EndFunc

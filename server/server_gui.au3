@@ -82,7 +82,8 @@ EndFunc
 Global $gLastHash = ""
 
 Func _UI_RefreshClients()
-    Local $a, $rows, $i, $hash, $idx
+    Local $a, $rows, $i, $idx
+    Local $hash
     
     _DB_GetClientsForUI($a, $rows)
     If $rows <= 0 Then

@@ -97,7 +97,7 @@ Func _UI_RefreshClients()
     Next
     
     ; Only refresh if data changed
-    If $h = $gLastHash Then Return
+    If ($h == $gLastHash) Then Return
     $gLastHash = $h
 
     ; Update ListView

@@ -10,18 +10,17 @@
 OnAutoItExitRegister("_AppCleanup")
 
 Global $hGUI = GUICreate("Automation Control", 1200, 700)
-Global $lv = GUICtrlCreateListView("ClientID|IP|Hostname|OS|Version|Status|Last Message|Last Seen", 10, 10, 900, 500)
+Global $lv = GUICtrlCreateListView("IP|Hostname|OS|Version|Status|Last Message|Last Seen", 10, 10, 900, 500)
 
-; Set ListView style and column widths
-_GUICtrlListView_SetExtendedListViewStyle($lv, BitOR($LVS_EX_FULLROWSELECT, $LVS_EX_GRIDLINES))
-_GUICtrlListView_SetColumnWidth($lv, 0, 140) ; ClientID
-_GUICtrlListView_SetColumnWidth($lv, 1, 130) ; IP
-_GUICtrlListView_SetColumnWidth($lv, 2, 100) ; Hostname
-_GUICtrlListView_SetColumnWidth($lv, 3, 80)  ; OS
-_GUICtrlListView_SetColumnWidth($lv, 4, 70)  ; Version
-_GUICtrlListView_SetColumnWidth($lv, 5, 70)  ; Status
-_GUICtrlListView_SetColumnWidth($lv, 6, 160) ; Last Message
-_GUICtrlListView_SetColumnWidth($lv, 7, 150) ; Last Seen
+; Set ListView style with checkboxes and column widths
+_GUICtrlListView_SetExtendedListViewStyle($lv, BitOR($LVS_EX_FULLROWSELECT, $LVS_EX_GRIDLINES, $LVS_EX_CHECKBOXES))
+_GUICtrlListView_SetColumnWidth($lv, 0, 130) ; IP
+_GUICtrlListView_SetColumnWidth($lv, 1, 110) ; Hostname
+_GUICtrlListView_SetColumnWidth($lv, 2, 90)  ; OS
+_GUICtrlListView_SetColumnWidth($lv, 3, 80)  ; Version
+_GUICtrlListView_SetColumnWidth($lv, 4, 80)  ; Status
+_GUICtrlListView_SetColumnWidth($lv, 5, 220) ; Last Message
+_GUICtrlListView_SetColumnWidth($lv, 6, 190) ; Last Seen
 
 Global $btnSend = GUICtrlCreateButton("Send Command", 930, 10, 240, 40)
 Global $btnBuild = GUICtrlCreateButton("Build & Publish", 930, 60, 240, 40)
@@ -102,21 +101,31 @@ Func _UI_RefreshClients()
         Return
     EndIf
 
-    ; Just always refresh - simpler than hash comparison
-    ; Performance is fine for small number of clients
+    ; Save current selection and checkbox states before refresh
+    Local $checkedIPs = ""
+    For $i = 0 To _GUICtrlListView_GetItemCount($lv) - 1
+        If _GUICtrlListView_GetItemChecked($lv, $i) Then
+            $checkedIPs &= _GUICtrlListView_GetItemText($lv, $i, 0) & "|" ; Save IP
+        EndIf
+    Next
 
     _GUICtrlListView_BeginUpdate($lv)
     _GUICtrlListView_DeleteAllItems($lv)
 
+    ; Add items - skip ClientID column (was column 0, now start from IP)
     For $i = 1 To $rows
-        $idx = _GUICtrlListView_AddItem($lv, $a[$i][0])
-        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][1], 1)
-        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][2], 2)
-        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][3], 3)
-        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][4], 4)
-        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][5], 5)
-        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][6], 6)
-        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][7], 7)
+        $idx = _GUICtrlListView_AddItem($lv, $a[$i][1])  ; IP (was column 1)
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][2], 1)  ; Hostname
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][3], 2)  ; OS
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][4], 3)  ; Version
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][5], 4)  ; Status
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][6], 5)  ; Last Message
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][7], 6)  ; Last Seen
+        
+        ; Restore checkbox state if this IP was checked before
+        If StringInStr($checkedIPs, $a[$i][1] & "|") Then
+            _GUICtrlListView_SetItemChecked($lv, $idx, True)
+        EndIf
     Next
     _GUICtrlListView_EndUpdate($lv)
 EndFunc

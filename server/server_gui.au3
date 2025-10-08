@@ -11,6 +11,18 @@ OnAutoItExitRegister("_AppCleanup")
 
 Global $hGUI = GUICreate("Automation Control", 1200, 700)
 Global $lv = GUICtrlCreateListView("ClientID|IP|Hostname|OS|Version|Status|Last Message|Last Seen", 10, 10, 900, 500)
+
+; Set ListView style and column widths
+_GUICtrlListView_SetExtendedListViewStyle($lv, BitOR($LVS_EX_FULLROWSELECT, $LVS_EX_GRIDLINES))
+_GUICtrlListView_SetColumnWidth($lv, 0, 140) ; ClientID
+_GUICtrlListView_SetColumnWidth($lv, 1, 130) ; IP
+_GUICtrlListView_SetColumnWidth($lv, 2, 100) ; Hostname
+_GUICtrlListView_SetColumnWidth($lv, 3, 80)  ; OS
+_GUICtrlListView_SetColumnWidth($lv, 4, 70)  ; Version
+_GUICtrlListView_SetColumnWidth($lv, 5, 70)  ; Status
+_GUICtrlListView_SetColumnWidth($lv, 6, 160) ; Last Message
+_GUICtrlListView_SetColumnWidth($lv, 7, 150) ; Last Seen
+
 Global $btnSend = GUICtrlCreateButton("Send Command", 930, 10, 240, 40)
 Global $btnBuild = GUICtrlCreateButton("Build & Publish", 930, 60, 240, 40)
 

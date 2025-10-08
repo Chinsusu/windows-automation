@@ -83,7 +83,6 @@ Global $gLastHash = ""
 
 Func _UI_RefreshClients()
     Local $a, $rows, $i, $idx
-    Local $hash
     
     _DB_GetClientsForUI($a, $rows)
     If $rows <= 0 Then
@@ -91,13 +90,8 @@ Func _UI_RefreshClients()
         Return
     EndIf
 
-    $hash = ""
-    For $i = 1 To $rows
-        $hash = $hash & $a[$i][0] & "|" & $a[$i][5] & "|" & $a[$i][7] & ";"
-    Next
-    
-    If StringCompare($hash, $gLastHash) = 0 Then Return
-    $gLastHash = $hash
+    ; Just always refresh - simpler than hash comparison
+    ; Performance is fine for small number of clients
 
     _GUICtrlListView_BeginUpdate($lv)
     _GUICtrlListView_DeleteAllItems($lv)

@@ -1,5 +1,6 @@
 ; server_gui.au3
 #include <GUIConstantsEx.au3>
+#include <GuiListView.au3>
 #include <WindowsConstants.au3>
 #include "server_db.au3"
 #include "server_http_listener.au3"
@@ -23,6 +24,9 @@ GUISetState(@SW_SHOW)
 _DB_Init()
 _Listener_AttachGui($log, $lv)
 _Listener_Start(8080)
+
+; Register ListView refresh every 1 second
+AdlibRegister("_UI_RefreshClients", 1000)
 
 ; File logging for debug
 Global $hLogFile = FileOpen(@ScriptDir & "\..\logs\gui_debug.log", 1)
@@ -71,4 +75,41 @@ EndFunc
 Func _AppCleanup()
     ; Emergency cleanup
     AdlibUnRegister("_Listener_Pump")
+    AdlibUnRegister("_UI_RefreshClients")
+EndFunc
+
+; --- ListView refresh from DB ---
+Global $gLastHash = ""
+
+Func _UI_RefreshClients()
+    Local $a, $rows
+    If Not IsDeclared("gDB") Then Return ; listener hasn't opened DB yet
+    _DB_GetClientsForUI($a, $rows)
+    If $rows <= 0 Then
+        _GUICtrlListView_DeleteAllItems($lv)
+        Return
+    EndIf
+
+    ; Create simple hash from client_id+status+last_seen to detect changes
+    Local $h = ""
+    For $i = 1 To $rows
+        $h &= $a[$i][0] & "|" & $a[$i][5] & "|" & $a[$i][7] & ";"
+    Next
+    If $h = $gLastHash Then Return
+    $gLastHash = $h
+
+    _GUICtrlListView_BeginUpdate($lv)
+    _GUICtrlListView_DeleteAllItems($lv)
+
+    For $i = 1 To $rows
+        Local $idx = _GUICtrlListView_AddItem($lv, $a[$i][0])           ; ClientID
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][1], 1)            ; IP
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][2], 2)            ; Hostname
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][3], 3)            ; OS
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][4], 4)            ; Version
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][5], 5)            ; Status
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][6], 6)            ; Last Message
+        _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][7], 7)            ; Last Seen
+    Next
+    _GUICtrlListView_EndUpdate($lv)
 EndFunc

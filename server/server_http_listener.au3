@@ -412,6 +412,33 @@ Func _DB_SaveResult($task_id, $ok, $result, $err)
     _SQLite_Exec($gDB, "UPDATE tasks SET status='" & $st & "', result=" & $resq & ", executed_at=" & $now & " WHERE task_id=" & $tidq & ";")
 EndFunc
 
+; Get clients list for GUI ListView (returns 2D array)
+Func _DB_GetClientsForUI(ByRef $out, ByRef $rows)
+    If Not $gDbEnabled Then
+        $rows = 0
+        Local $empty[0][0]
+        $out = $empty
+        Return 0
+    EndIf
+    
+    Local $sql = _
+        "SELECT client_id, " & _
+        "COALESCE(ip_local, ip_public) AS ip, " & _
+        "IFNULL(hostname,''), IFNULL(os,''), IFNULL(version,''), " & _
+        "IFNULL(status,''), IFNULL(last_message,''), IFNULL(last_seen,'') " & _
+        "FROM clients ORDER BY datetime(last_seen) DESC;"
+
+    Local $cols
+    _SQLite_GetTable2d($gDB, $sql, $out, $rows, $cols)
+    If @error Then
+        $rows = 0
+        Local $empty[0][0]
+        $out = $empty
+        Return 0
+    EndIf
+    Return $rows
+EndFunc
+
 ; ---------- Helpers ----------
 Func _GetLANIP()
     ; Try to find 192.168.x.x IP address

@@ -8,11 +8,16 @@
 Global $gCID = _ComputeClientId()
 _Log("Agent " & $CFG_VERSION & " start id=" & $gCID & " server=" & _Cfg_Server())
 
+; Send initial callback on startup
+_Log("initial callback -> /cb")
+_Api_Callback($gCID, "idle", "Agent started")
+
 Local $lastBeat = TimerInit()
 
 While 1
     ; periodic heartbeat
     If TimerDiff($lastBeat) > $CFG_BEAT_MS Then
+        _Log("heartbeat -> /cb")
         _Api_Callback($gCID, "live", "heartbeat")
         $lastBeat = TimerInit()
     EndIf
@@ -21,12 +26,14 @@ While 1
     _Updater_CheckAndMaybeUpdate()
 
     ; long-poll a task
+    _Log("long-poll /tasks ...")
     Local $r = _Api_LongPollTask($gCID)
     If Not @error Then
         If $r[0] = 200 And $r[1] <> "" Then
             Local $tj = $r[1]
             Local $task_id = _JsonGetStr($tj, "task_id")
             Local $type    = _JsonGetStr($tj, "type")
+            _Log("task received: " & $task_id & " type=" & $type)
             ; args block (non-greedy)
             Local $m = StringRegExp($tj, '"args"\s*:\s*(\{.*?\})(?:,|\})', 1)
             Local $args = (Not @error And UBound($m) > 0) ? $m[0] : "{}"
@@ -36,13 +43,16 @@ While 1
             Local $ok = (Not @error)
             Local $out = $ok ? $res : ""
             Local $err = $ok ? "" : $res
+            _Log("post result " & $task_id & " ok=" & String($ok))
             _Api_PostResult($gCID, $task_id, $ok, $out, $err)
             _Api_Callback($gCID, "idle", "Done:" & $type)
         Else
+            _Log("long-poll status=" & $r[0])
             ; 204 or other → short sleep
             Sleep(400)
         EndIf
     Else
+        _Log("long-poll error")
         Sleep(1000)
     EndIf
 WEnd

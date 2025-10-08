@@ -29,9 +29,11 @@ EndFunc
 Func _HttpReq($method, $path, $payload, $timeout)
     Local $scheme, $host, $port
     _ParseServer($scheme, $host, $port)
+    _Log(StringFormat("[HTTP] %s %s://%s:%d%s", $method, $scheme, $host, $port, $path))
 
     Local $hOpen = _WinHttpOpen("AutoAgent/" & $CFG_VERSION)
     If $hOpen = 0 Then
+        _Log("[HTTP] _WinHttpOpen fail")
         Local $ret[2]
         $ret[0] = 0
         $ret[1] = ""
@@ -40,6 +42,7 @@ Func _HttpReq($method, $path, $payload, $timeout)
     
     Local $hConn = _WinHttpConnect($hOpen, $host, $port)
     If $hConn = 0 Then
+        _Log("[HTTP] _WinHttpConnect fail")
         _WinHttpCloseHandle($hOpen)
         Local $ret[2]
         $ret[0] = 0
@@ -60,9 +63,33 @@ Func _HttpReq($method, $path, $payload, $timeout)
     If $k <> "" Then $hdr &= "X-Api-Key: " & $k & @CRLF
     _WinHttpAddRequestHeaders($hReq, $hdr, $WINHTTP_ADDREQ_FLAG_ADD)
 
-    Local $bin = Binary($payload)
-    _WinHttpSendRequest($hReq, "", 0, $bin, BinaryLen($bin))
-    _WinHttpReceiveResponse($hReq)
+    ; Send the request with payload
+    Local $bin = StringToBinary($payload, 4) ; 4 = UTF-8
+    Local $payloadLen = StringLen($payload)
+    _Log("[HTTP] Payload len=" & $payloadLen)
+    
+    ; Send request with optional data
+    If Not _WinHttpSendRequest($hReq, "", $bin) Then
+        _Log("[HTTP] SendRequest fail")
+        _WinHttpCloseHandle($hReq)
+        _WinHttpCloseHandle($hConn)
+        _WinHttpCloseHandle($hOpen)
+        Local $ret[2]
+        $ret[0] = 0
+        $ret[1] = ""
+        Return SetError(1, 0, $ret)
+    EndIf
+    
+    If Not _WinHttpReceiveResponse($hReq) Then
+        _Log("[HTTP] ReceiveResponse fail")
+        _WinHttpCloseHandle($hReq)
+        _WinHttpCloseHandle($hConn)
+        _WinHttpCloseHandle($hOpen)
+        Local $ret[2]
+        $ret[0] = 0
+        $ret[1] = ""
+        Return SetError(1, 0, $ret)
+    EndIf
 
     Local $status = Number(_WinHttpQueryHeaders($hReq, $WINHTTP_QUERY_STATUS_CODE))
     Local $data = ""
@@ -72,6 +99,7 @@ Func _HttpReq($method, $path, $payload, $timeout)
         $data &= $chunk
     WEnd
 
+    _Log("[HTTP] status=" & $status & " len=" & StringLen($data))
     _WinHttpCloseHandle($hReq)
     _WinHttpCloseHandle($hConn)
     _WinHttpCloseHandle($hOpen)
@@ -93,7 +121,14 @@ EndFunc
 Func _Api_Callback($cid, $status, $message)
     Local $payload = '{"client_id":"' & $cid & '","status":"' & $status & '","message":"' & _JsonEsc($message) & _
                      '","ip_local":"' & @IPAddress1 & '","ts":"' & _NowTs() & '"}'
-    Return _HttpPost("/cb", $payload, 10000)
+    _Log("Callback: status=" & $status & " msg=" & $message)
+    Local $r = _HttpPost("/cb", $payload, 10000)
+    If @error Then
+        _Log("ERROR: Callback POST failed")
+    Else
+        _Log("Callback response: " & $r[0])
+    EndIf
+    Return $r
 EndFunc
 
 Func _Api_LongPollTask($cid)

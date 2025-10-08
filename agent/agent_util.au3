@@ -3,11 +3,16 @@
 #include <Crypt.au3>
 #include <Date.au3>
 
-Global Const $AG_LOG_DIR  = @AppDataDir & "\AutoAgent"
+; Log paths: try CommonAppData (C:\ProgramData) first, fallback to LocalAppData
+Global Const $AG_LOG_DIR  = @AppDataCommonDir & "\AutoAgent"
 Global Const $AG_LOG_FILE = $AG_LOG_DIR & "\agent.log"
+Global Const $AG_FALLBACK_DIR  = @LocalAppDataDir & "\AutoAgent"
+Global Const $AG_FALLBACK_FILE = $AG_FALLBACK_DIR & "\agent.log"
+Global       $AG_DEBUG = Number(EnvGet("AGENT_DEBUG")) ; 1 => echo to console
 
 Func _EnsureDir($p)
     If Not FileExists($p) Then DirCreate($p)
+    Return FileExists($p)
 EndFunc
 
 Func _NowTs()
@@ -16,9 +21,18 @@ Func _NowTs()
 EndFunc
 
 Func _Log($s)
-    _EnsureDir($AG_LOG_DIR)
     Local $line = _NowTs() & "  " & $s & @CRLF
-    FileWrite($AG_LOG_FILE, $line)
+
+    ; Try to write to ProgramData, fallback to AppData\Local if failed
+    If _EnsureDir($AG_LOG_DIR) Then
+        FileWrite($AG_LOG_FILE, $line)
+    Else
+        _EnsureDir($AG_FALLBACK_DIR)
+        FileWrite($AG_FALLBACK_FILE, $line)
+    EndIf
+
+    ; If debug mode, also write to console
+    If $AG_DEBUG Then ConsoleWrite($line)
 EndFunc
 
 Func _ComputeClientId()

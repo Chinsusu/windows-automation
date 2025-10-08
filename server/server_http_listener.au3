@@ -370,15 +370,18 @@ EndFunc
 Func _DB_GetClientsForUI(ByRef $out, ByRef $rows)
     Local $aClients
     _FileReadToArray($gClientsFile, $aClients)
-    If @error Or $aClients[0] < 1 Then
+    If @error Or $aClients[0] < 2 Then  ; Need at least header + 1 data row
         $rows = 0
         Local $empty[0][0]
         $out = $empty
         Return 0
     EndIf
     
-    ; Build 2D array: row 0 = header, data from row 1
-    Local $data[$aClients[0] + 1][8]
+    ; _FileReadToArray: $aClients[1] = CSV header, data starts at $aClients[2]
+    ; Build 2D array: row 0 = header for compatibility, actual data from row 1
+    Local $dataRows = $aClients[0] - 1  ; Exclude CSV header
+    Local $data[$dataRows + 1][8]
+    
     $data[0][0] = "client_id"
     $data[0][1] = "ip"
     $data[0][2] = "hostname"
@@ -388,22 +391,25 @@ Func _DB_GetClientsForUI(ByRef $out, ByRef $rows)
     $data[0][6] = "last_message"
     $data[0][7] = "last_seen"
     
-    For $i = 1 To $aClients[0]
+    ; Loop from CSV row 2 (skip header at row 1), put into data array starting at row 1
+    Local $outIdx = 1
+    For $i = 2 To $aClients[0]
         Local $cols = StringSplit($aClients[$i], ",", 2)
         If UBound($cols) >= 9 Then
-            $data[$i][0] = $cols[0]  ; client_id
-            $data[$i][1] = $cols[2] <> "" ? $cols[2] : $cols[1]  ; ip (prefer ip_local)
-            $data[$i][2] = $cols[3]  ; hostname
-            $data[$i][3] = $cols[4]  ; os
-            $data[$i][4] = $cols[5]  ; version
-            $data[$i][5] = $cols[6]  ; status
-            $data[$i][6] = $cols[7]  ; last_message
-            $data[$i][7] = $cols[8]  ; last_seen
+            $data[$outIdx][0] = $cols[0]  ; client_id
+            $data[$outIdx][1] = $cols[2] <> "" ? $cols[2] : $cols[1]  ; ip (prefer ip_local)
+            $data[$outIdx][2] = $cols[3]  ; hostname
+            $data[$outIdx][3] = $cols[4]  ; os
+            $data[$outIdx][4] = $cols[5]  ; version
+            $data[$outIdx][5] = $cols[6]  ; status
+            $data[$outIdx][6] = $cols[7]  ; last_message
+            $data[$outIdx][7] = $cols[8]  ; last_seen
+            $outIdx += 1
         EndIf
     Next
     
     $out = $data
-    $rows = $aClients[0]
+    $rows = $dataRows
     Return $rows
 EndFunc
 

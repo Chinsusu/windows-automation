@@ -197,7 +197,9 @@ Func _HandleCB(ByRef $req, $cSock)
     Local $cid = _JsonGetStr($body, "client_id")
     Local $status = _JsonGetStr($body, "status")
     Local $message = _JsonGetStr($body, "message")
-    Local $ip_local = _JsonGetStr($body, "ip_local")
+    Local $ip_local = _JsonGetStr($body, "ip")  ; Client sends "ip" not "ip_local"
+    If $ip_local = "" Then $ip_local = _JsonGetStr($body, "ip_local")  ; Fallback
+    Local $hostname = _JsonGetStr($body, "computer")  ; Get computer name
     Local $ts = _JsonGetStr($body, "ts")
     If $ts = "" Then $ts = _NowTs()
     
@@ -212,8 +214,9 @@ Func _HandleCB(ByRef $req, $cSock)
     ; Step 2: DB Upsert with error handling
     Local $ip_public = ""
     _LogUI("[CB] Calling _DB_UpsertClient...")
+    _LogUI("[CB] IP: " & $ip_local & ", Hostname: " & $hostname)
     
-    _DB_UpsertClient($cid, $ip_public, $ip_local, $status, $message, $ts)
+    _DB_UpsertClient($cid, $ip_public, $ip_local, $hostname, $status, $message, $ts)
     
     If @error Then
         _LogUI("[CB] ERROR: DB upsert failed - " & @error)
@@ -327,7 +330,7 @@ Func _DB_Shutdown()
     ; Nothing to cleanup for CSV
 EndFunc
 
-Func _DB_UpsertClient($cid, $ip_public, $ip_local, $status, $message, $ts)
+Func _DB_UpsertClient($cid, $ip_public, $ip_local, $hostname, $status, $message, $ts)
     ; Read existing clients
     Local $aClients
     _FileReadToArray($gClientsFile, $aClients)
@@ -345,7 +348,7 @@ Func _DB_UpsertClient($cid, $ip_public, $ip_local, $status, $message, $ts)
     Next
     
     ; Build CSV line: client_id,ip_public,ip_local,hostname,os,version,status,last_message,last_seen
-    Local $line = _CSVEscape($cid) & "," & _CSVEscape($ip_public) & "," & _CSVEscape($ip_local) & ",,," & _
+    Local $line = _CSVEscape($cid) & "," & _CSVEscape($ip_public) & "," & _CSVEscape($ip_local) & "," & _CSVEscape($hostname) & ",," & _
                   "," & _CSVEscape($status) & "," & _CSVEscape($message) & "," & _CSVEscape($ts)
     
     If $found Then

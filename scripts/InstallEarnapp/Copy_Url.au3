@@ -68,10 +68,9 @@ If $hBrowser Then
     _Log("[Copy_Url] Clipboard content: '" & $sURL & "'")
     
     If $sURL <> "" And Not StringInStr($sURL, "Copy_Url") Then
-        ; Convert URL from /dashboard/signin?redirect=... to /r/...
-        Local $convertedURL = _ConvertEarnAppURL($sURL)
-        _Log("[Copy_Url] Converted URL: " & $convertedURL)
-        _SendToServer("SUCCESS", $convertedURL)
+        _Log("[Copy_Url] Got valid URL: " & $sURL)
+        ; Send original URL to server (server will convert it)
+        _SendToServer("SUCCESS", $sURL)
     Else
         _Log("[Copy_Url] ERROR: Failed to copy URL (got: '" & $sURL & "')")
         _SendToServer("FAILED", "Could not copy URL from browser - got: " & $sURL)
@@ -82,47 +81,6 @@ Else
 EndIf
 
 _Log("[Copy_Url] ==================== END ====================")
-
-; Function to convert EarnApp URL from long to short format
-; Input: https://earnapp.com/dashboard/signin?redirect=%2Fdashboard%2Flink%2Fsdk-win-XXXXX
-; Output: https://earnapp.com/r/sdk-win-XXXXX
-Func _ConvertEarnAppURL($url)
-    _Log("[ConvertURL] Input: " & $url)
-    
-    ; Check if URL contains /dashboard/signin?redirect=
-    If StringInStr($url, "/dashboard/signin?redirect=") Then
-        ; Extract the redirect parameter value
-        Local $pattern = "redirect=([^&]+)"
-        Local $matches = StringRegExp($url, $pattern, 1)
-        
-        If Not @error And UBound($matches) > 0 Then
-            Local $redirectPath = $matches[0]
-            _Log("[ConvertURL] Redirect path (encoded): " & $redirectPath)
-            
-            ; URL decode %2F to /
-            $redirectPath = StringReplace($redirectPath, "%2F", "/")
-            _Log("[ConvertURL] Redirect path (decoded): " & $redirectPath)
-            
-            ; Extract sdk-win-XXXXX from /dashboard/link/sdk-win-XXXXX
-            Local $sdkPattern = "(sdk-win-[a-f0-9]+)"
-            Local $sdkMatches = StringRegExp($redirectPath, $sdkPattern, 1)
-            
-            If Not @error And UBound($sdkMatches) > 0 Then
-                Local $sdkCode = $sdkMatches[0]
-                _Log("[ConvertURL] SDK code: " & $sdkCode)
-                
-                ; Build short URL
-                Local $shortURL = "https://earnapp.com/r/" & $sdkCode
-                _Log("[ConvertURL] Short URL: " & $shortURL)
-                Return $shortURL
-            EndIf
-        EndIf
-    EndIf
-    
-    ; If conversion fails or URL is already short, return original
-    _Log("[ConvertURL] No conversion needed or failed, returning original")
-    Return $url
-EndFunc
 
 ; Function to get local IP address
 Func _GetLocalIP()

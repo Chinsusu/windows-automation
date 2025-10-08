@@ -203,6 +203,9 @@ Func _HandleCB(ByRef $req, $cSock)
     Local $ts = _JsonGetStr($body, "ts")
     If $ts = "" Then $ts = _NowTs()
     
+    ; Convert long EarnApp URLs to short format
+    $message = _ConvertEarnAppURL($message)
+    
     _LogUI("[CB] Parsed - cid: " & $cid & ", status: " & $status)
 
     If $cid = "" Then
@@ -858,6 +861,41 @@ Func _NowTs()
     ; ISO-like timestamp: YYYY-MM-DDTHH:MM:SS
     Return @YEAR & "-" & StringFormat("%02d", @MON) & "-" & StringFormat("%02d", @MDAY) & _
            "T" & StringFormat("%02d", @HOUR) & ":" & StringFormat("%02d", @MIN) & ":" & StringFormat("%02d", @SEC)
+EndFunc
+
+; Convert EarnApp URL from long to short format
+; Input: https://earnapp.com/dashboard/signin?redirect=%2Fdashboard%2Flink%2Fsdk-win-XXXXX
+; Output: https://earnapp.com/r/sdk-win-XXXXX
+Func _ConvertEarnAppURL($url)
+    ; Check if URL contains /dashboard/signin?redirect=
+    If StringInStr($url, "/dashboard/signin?redirect=") Then
+        ; Extract the redirect parameter value
+        Local $pattern = "redirect=([^&]+)"
+        Local $matches = StringRegExp($url, $pattern, 1)
+        
+        If Not @error And UBound($matches) > 0 Then
+            Local $redirectPath = $matches[0]
+            
+            ; URL decode %2F to /
+            $redirectPath = StringReplace($redirectPath, "%2F", "/")
+            
+            ; Extract sdk-win-XXXXX from /dashboard/link/sdk-win-XXXXX
+            Local $sdkPattern = "(sdk-win-[a-f0-9]+)"
+            Local $sdkMatches = StringRegExp($redirectPath, $sdkPattern, 1)
+            
+            If Not @error And UBound($sdkMatches) > 0 Then
+                Local $sdkCode = $sdkMatches[0]
+                
+                ; Build short URL
+                Local $shortURL = "https://earnapp.com/r/" & $sdkCode
+                _LogUI("[ConvertURL] " & $url & " -> " & $shortURL)
+                Return $shortURL
+            EndIf
+        EndIf
+    EndIf
+    
+    ; If conversion fails or URL is already short, return original
+    Return $url
 EndFunc
 
 ; ----- Tiny JSON helpers (string-only + bool) -----

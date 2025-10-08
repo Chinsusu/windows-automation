@@ -28,6 +28,7 @@ _GUICtrlListView_SetColumnWidth($lv, 7, 180) ; Last Seen
 
 Global $btnSend = GUICtrlCreateButton("Send Command", 930, 10, 240, 40)
 Global $btnBuild = GUICtrlCreateButton("Build & Publish", 930, 60, 240, 40)
+Global $btnCopyMsg = GUICtrlCreateButton("Copy Selected Message", 930, 110, 240, 40)
 
 ; Log area - height giảm xuống 130px để chừa chỗ cho Close button
 Global $log = GUICtrlCreateEdit("", 10, 520, 1160, 130)
@@ -68,6 +69,8 @@ While 1
         Case $btnBuild
             ; TODO: call builder + R2 uploader
             GUICtrlSetData($log, GUICtrlRead($log) & "Build & Publish clicked" & @CRLF)
+        Case $btnCopyMsg
+            _CopySelectedMessage()
         Case $btnClose
             GUICtrlSetData($log, GUICtrlRead($log) & "[1] Close button clicked" & @CRLF)
             _SafeExit()
@@ -98,6 +101,31 @@ EndFunc
 
 ; --- ListView refresh from DB ---
 Global $gClientCache  ; Store: IP => "status|message|last_seen"
+
+; --- Copy Selected Message Button ---
+Func _CopySelectedMessage()
+    ; Get selected row
+    Local $iSelected = _GUICtrlListView_GetSelectedIndices($lv)
+    If $iSelected = "" Then
+        MsgBox(48, "Copy Message", "Please select a client row first")
+        Return
+    EndIf
+    
+    ; Get first selected item
+    Local $aSelected = StringSplit($iSelected, "|")
+    If $aSelected[0] > 0 Then
+        Local $iItem = Int($aSelected[1])
+        Local $sMessage = _GUICtrlListView_GetItemText($lv, $iItem, 6)
+        
+        If $sMessage <> "" Then
+            ClipPut($sMessage)
+            GUICtrlSetData($log, GUICtrlRead($log) & "[COPY] " & $sMessage & @CRLF)
+            MsgBox(64, "Copied", "Message copied to clipboard:" & @CRLF & @CRLF & $sMessage, 2)
+        Else
+            MsgBox(48, "Copy Message", "Selected row has no message")
+        EndIf
+    EndIf
+EndFunc
 
 ; --- Send Command Dialog ---
 Func _SendCommandDialog()
@@ -201,9 +229,10 @@ Func _ListView_WM_NOTIFY($hWnd, $iMsg, $wParam, $lParam)
                         Local $sMessage = _GUICtrlListView_GetItemText($lv, $iItem, 6)
                         If $sMessage <> "" Then
                             ClipPut($sMessage)
-                            ; Show brief tooltip or status
-                            ToolTip("✓ Copied: " & StringLeft($sMessage, 50) & "...", MouseGetPos(0), MouseGetPos(1) - 30)
-                            AdlibRegister("_HideTooltip", 2000)
+                            ; Show brief tooltip or status (only if not already showing)
+                            ToolTip("✓ Copied: " & StringLeft($sMessage, 50) & "...")
+                            ; Set a timer to hide tooltip
+                            AdlibRegister("_HideTooltip", 1500)
                             
                             ; Also log to GUI log area
                             GUICtrlSetData($log, GUICtrlRead($log) & "[COPY] " & $sMessage & @CRLF)
@@ -251,8 +280,9 @@ Func _ListView_WM_NOTIFY($hWnd, $iMsg, $wParam, $lParam)
 EndFunc
 
 Func _HideTooltip()
-    ToolTip("")
+    ; Unregister first to prevent multiple timers
     AdlibUnRegister("_HideTooltip")
+    ToolTip("")
 EndFunc
 
 Func _UI_RefreshClients()

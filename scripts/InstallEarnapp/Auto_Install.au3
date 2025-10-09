@@ -24,7 +24,7 @@ If Not $ok Then
 EndIf
 
 If Not $ok Then
-    Local $h = InetGet($URL, $OUT, $INET_FORCERELOAD, $INET_IGNORECTRL)
+    Local $h = InetGet($URL, $OUT, $INET_FORCERELOAD)
     If @error Then
         $ok = False
     Else

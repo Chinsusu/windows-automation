@@ -75,6 +75,11 @@ If $hBrowser Then
         _Log("[Copy_Url] ERROR: Failed to copy URL (got: '" & $sURL & "')")
         _SendToServer("FAILED", "Could not copy URL from browser - got: " & $sURL)
     EndIf
+    
+    ; Đóng browser window sau khi đã copy URL
+    _Log("[Copy_Url] Closing browser window...")
+    WinClose($hBrowser)
+    Sleep(1000)
 Else
     _Log("[Copy_Url] ERROR: Browser window NOT found")
     _SendToServer("FAILED", "Browser window not found")

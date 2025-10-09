@@ -13,18 +13,17 @@
 OnAutoItExitRegister("_AppCleanup")
 
 Global $hGUI = GUICreate("Automation Control", 1200, 700)
-Global $lv = GUICtrlCreateListView("Select|IP|Hostname|OS|Version|Status|Last Message|Last Seen", 10, 10, 900, 500)
+Global $lv = GUICtrlCreateListView("Select|IP|Hostname|Public IP|Status|Last Message|Last Seen", 10, 10, 900, 500)
 
 ; Set ListView style with checkboxes and column widths
 _GUICtrlListView_SetExtendedListViewStyle($lv, BitOR($LVS_EX_FULLROWSELECT, $LVS_EX_GRIDLINES, $LVS_EX_CHECKBOXES))
 _GUICtrlListView_SetColumnWidth($lv, 0, 60)  ; Select (checkbox)
 _GUICtrlListView_SetColumnWidth($lv, 1, 130) ; IP
 _GUICtrlListView_SetColumnWidth($lv, 2, 110) ; Hostname
-_GUICtrlListView_SetColumnWidth($lv, 3, 80)  ; OS
-_GUICtrlListView_SetColumnWidth($lv, 4, 70)  ; Version
-_GUICtrlListView_SetColumnWidth($lv, 5, 70)  ; Status
-_GUICtrlListView_SetColumnWidth($lv, 6, 190) ; Last Message
-_GUICtrlListView_SetColumnWidth($lv, 7, 180) ; Last Seen
+_GUICtrlListView_SetColumnWidth($lv, 3, 130) ; Public IP
+_GUICtrlListView_SetColumnWidth($lv, 4, 70)  ; Status
+_GUICtrlListView_SetColumnWidth($lv, 5, 200) ; Last Message
+_GUICtrlListView_SetColumnWidth($lv, 6, 180) ; Last Seen
 
 Global $btnSend = GUICtrlCreateButton("Send Command", 930, 10, 240, 40)
 Global $btnBuild = GUICtrlCreateButton("Build & Publish", 930, 60, 240, 40)
@@ -45,8 +44,8 @@ _DB_Init()
 _Listener_AttachGui($log, $lv)
 _Listener_Start(8080)
 
-; Register ListView refresh every 1 second
-AdlibRegister("_UI_RefreshClients", 1000)
+; Register ListView refresh every 2 seconds (reduced frequency)
+AdlibRegister("_UI_RefreshClients", 2000)
 
 ; File logging for debug
 Global $hLogFile = FileOpen(@ScriptDir & "\..\logs\gui_debug.log", 1)
@@ -100,7 +99,41 @@ Func _AppCleanup()
 EndFunc
 
 ; --- ListView refresh from DB ---
-Global $gClientCache  ; Store: IP => "status|message|last_seen"
+Global $gClientCache  ; Store: IP => "status|message|last_seen_timestamp"
+
+; Format timestamp to "time ago" format
+Func _FormatTimeAgo($timestamp)
+    ; Parse timestamp: "2025-10-09T13:45:58"
+    Local $year = Int(StringMid($timestamp, 1, 4))
+    Local $month = Int(StringMid($timestamp, 6, 2))
+    Local $day = Int(StringMid($timestamp, 9, 2))
+    Local $hour = Int(StringMid($timestamp, 12, 2))
+    Local $min = Int(StringMid($timestamp, 15, 2))
+    Local $sec = Int(StringMid($timestamp, 18, 2))
+    
+    ; Get current time
+    Local $nowYear = Int(@YEAR)
+    Local $nowMonth = Int(@MON)
+    Local $nowDay = Int(@MDAY)
+    Local $nowHour = Int(@HOUR)
+    Local $nowMin = Int(@MIN)
+    Local $nowSec = Int(@SEC)
+    
+    ; Calculate difference in seconds (approximate)
+    Local $diffSec = ($nowHour - $hour) * 3600 + ($nowMin - $min) * 60 + ($nowSec - $sec)
+    
+    ; Adjust for day change
+    If $nowDay <> $day Then
+        $diffSec += 86400 * ($nowDay - $day)
+    EndIf
+    
+    ; Format based on time difference
+    If $diffSec < 0 Then Return "just now"  ; Future time (clock skew)
+    If $diffSec < 60 Then Return "just now"
+    If $diffSec < 3600 Then Return Int($diffSec / 60) & "m ago"
+    If $diffSec < 86400 Then Return Int($diffSec / 3600) & "h ago"
+    Return Int($diffSec / 86400) & "d ago"
+EndFunc
 
 ; --- Copy Selected Message Button ---
 Func _CopySelectedMessage()
@@ -115,7 +148,7 @@ Func _CopySelectedMessage()
     Local $aSelected = StringSplit($iSelected, "|")
     If $aSelected[0] > 0 Then
         Local $iItem = Int($aSelected[1])
-        Local $sMessage = _GUICtrlListView_GetItemText($lv, $iItem, 6)
+        Local $sMessage = _GUICtrlListView_GetItemText($lv, $iItem, 5)
         
         If $sMessage <> "" Then
             ClipPut($sMessage)
@@ -240,9 +273,9 @@ Func _ListView_WM_NOTIFY($hWnd, $iMsg, $wParam, $lParam)
                     Local $iItem = DllStructGetData($tInfo, "Index")
                     Local $iSubItem = DllStructGetData($tInfo, "SubItem")
                     
-                    ; If clicked on message column (column 6)
-                    If $iSubItem = 6 And $iItem >= 0 Then
-                        Local $sMessage = _GUICtrlListView_GetItemText($lv, $iItem, 6)
+                    ; If clicked on message column (column 5)
+                    If $iSubItem = 5 And $iItem >= 0 Then
+                        Local $sMessage = _GUICtrlListView_GetItemText($lv, $iItem, 5)
                         If $sMessage <> "" Then
                             ClipPut($sMessage)
                             ; Show brief tooltip or status (only if not already showing)
@@ -261,7 +294,7 @@ Func _ListView_WM_NOTIFY($hWnd, $iMsg, $wParam, $lParam)
                     
                     If $iItem >= 0 Then
                         ; Get message from clicked row
-                        Local $sMessage = _GUICtrlListView_GetItemText($lv, $iItem, 6)
+                        Local $sMessage = _GUICtrlListView_GetItemText($lv, $iItem, 5)
                         If $sMessage <> "" Then
                             ; Show context menu
                             Local $hMenu = _GUICtrlMenu_CreatePopup()
@@ -279,7 +312,7 @@ Func _ListView_WM_NOTIFY($hWnd, $iMsg, $wParam, $lParam)
                                     
                                 Case 1001  ; Copy Full Row
                                     Local $sFullRow = ""
-                                    For $c = 0 To 7
+                                    For $c = 0 To 6
                                         $sFullRow &= _GUICtrlListView_GetItemText($lv, $iItem, $c) & @TAB
                                     Next
                                     ClipPut($sFullRow)
@@ -306,26 +339,25 @@ Func _UI_RefreshClients()
     
     _DB_GetClientsForUI($a, $rows)
     If $rows <= 0 Then
-        _GUICtrlListView_DeleteAllItems($lv)
-        $gClientCache = ""
+        If _GUICtrlListView_GetItemCount($lv) > 0 Then
+            _GUICtrlListView_DeleteAllItems($lv)
+            $gClientCache = ""
+        EndIf
         Return
     EndIf
 
-    ; Build IP->row index map from current ListView
-    Local $currentIPs = ""
-    For $i = 0 To _GUICtrlListView_GetItemCount($lv) - 1
-        $currentIPs &= _GUICtrlListView_GetItemText($lv, $i, 1) & "|" ; Column 1 = IP
-    Next
-
-    _GUICtrlListView_BeginUpdate($lv)
+    Local $hasChanges = False  ; Track if any changes detected
+    Local $updateList[100][2]  ; Store updates: [rowIdx, type] where type: 0=update, 1=new
+    Local $updateCount = 0
     
     ; Process each client from DB
     For $i = 1 To $rows
         Local $ip = $a[$i][1]
-        Local $status = $a[$i][5]
-        Local $msg = $a[$i][6]
-        Local $lastSeen = $a[$i][7]
-        Local $dataHash = $status & "|" & $msg & "|" & $lastSeen
+        Local $status = $a[$i][4]
+        Local $msg = $a[$i][5]
+        Local $lastSeenTS = $a[$i][6]  ; Raw timestamp
+        Local $lastSeenFormatted = _FormatTimeAgo($lastSeenTS)  ; Format as "Xm ago"
+        Local $dataHash = $status & "|" & $msg & "|" & $lastSeenFormatted
         
         ; Check if this client changed
         Local $cacheKey = $ip
@@ -340,6 +372,9 @@ Func _UI_RefreshClients()
             EndIf
         EndIf
         
+        ; Skip if no change (including formatted time)
+        If $dataHash = $oldHash Then ContinueLoop
+        
         ; Find if IP already exists in ListView
         Local $found = False
         Local $rowIdx = -1
@@ -351,38 +386,33 @@ Func _UI_RefreshClients()
             EndIf
         Next
         
-        If $found And $dataHash = $oldHash Then
-            ; No change - skip this row
-            ContinueLoop
-        EndIf
+        $hasChanges = True  ; Mark that we have changes
         
         If $found Then
-            ; Update existing row
+            ; Update existing row - directly without BeginUpdate for single item
             Local $wasChecked = _GUICtrlListView_GetItemChecked($lv, $rowIdx)
             _GUICtrlListView_SetItemText($lv, $rowIdx, $a[$i][2], 2)  ; Hostname
-            _GUICtrlListView_SetItemText($lv, $rowIdx, $a[$i][3], 3)  ; OS
-            _GUICtrlListView_SetItemText($lv, $rowIdx, $a[$i][4], 4)  ; Version
-            _GUICtrlListView_SetItemText($lv, $rowIdx, $status, 5)    ; Status
-            _GUICtrlListView_SetItemText($lv, $rowIdx, $msg, 6)       ; Last Message
-            _GUICtrlListView_SetItemText($lv, $rowIdx, $lastSeen, 7)  ; Last Seen
+            _GUICtrlListView_SetItemText($lv, $rowIdx, $a[$i][3], 3)  ; Public IP
+            _GUICtrlListView_SetItemText($lv, $rowIdx, $status, 4)    ; Status
+            _GUICtrlListView_SetItemText($lv, $rowIdx, $msg, 5)       ; Last Message
+            _GUICtrlListView_SetItemText($lv, $rowIdx, $lastSeenFormatted, 6)  ; Last Seen (formatted)
             If $wasChecked Then _GUICtrlListView_SetItemChecked($lv, $rowIdx, True)
         Else
-            ; Add new row - column 0 is Select (empty), column 1 is IP
+            ; Add new row
             $idx = _GUICtrlListView_AddItem($lv, "")  ; Select column
             _GUICtrlListView_AddSubItem($lv, $idx, $ip, 1)
             _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][2], 2)  ; Hostname
-            _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][3], 3)  ; OS
-            _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][4], 4)  ; Version
-            _GUICtrlListView_AddSubItem($lv, $idx, $status, 5)
-            _GUICtrlListView_AddSubItem($lv, $idx, $msg, 6)
-            _GUICtrlListView_AddSubItem($lv, $idx, $lastSeen, 7)
+            _GUICtrlListView_AddSubItem($lv, $idx, $a[$i][3], 3)  ; Public IP
+            _GUICtrlListView_AddSubItem($lv, $idx, $status, 4)
+            _GUICtrlListView_AddSubItem($lv, $idx, $msg, 5)
+            _GUICtrlListView_AddSubItem($lv, $idx, $lastSeenFormatted, 6)  ; Last Seen (formatted)
         EndIf
         
-        ; Update cache
+        ; Update cache with formatted time
         If Not IsDeclared("gClientCache") Or Not IsString($gClientCache) Then $gClientCache = ""
         $gClientCache = StringRegExpReplace($gClientCache, $cacheKey & "=[^;]*;", "")  ; Remove old
         $gClientCache &= $cacheKey & "=" & $dataHash & ";"  ; Add new
     Next
     
-    _GUICtrlListView_EndUpdate($lv)
+    ; No BeginUpdate/EndUpdate - update items directly for smoother experience
 EndFunc

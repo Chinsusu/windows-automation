@@ -214,12 +214,26 @@ Func _HandleCB(ByRef $req, $cSock)
         Return
     EndIf
 
-    ; Step 2: DB Upsert with error handling
-    Local $ip_public = ""
+    ; Step 2: Read public_ip from JSON (StatusAgent sends this)
+    Local $ip_public = _JsonGetStr($body, "public_ip")
     _LogUI("[CB] Calling _DB_UpsertClient...")
-    _LogUI("[CB] IP: " & $ip_local & ", Hostname: " & $hostname)
+    _LogUI("[CB] IP: " & $ip_local & ", Public IP: " & $ip_public & ", Hostname: " & $hostname)
     
-    _DB_UpsertClient($cid, $ip_public, $ip_local, $hostname, $status, $message, $ts)
+    ; If this is a StatusAgent message (has public_ip and message contains "Agent reporting status"), 
+    ; update public_ip and status from agent
+    If $ip_public <> "" And StringInStr($message, "Agent reporting status:") Then
+        _LogUI("[CB] StatusAgent message detected - updating public_ip and status")
+        ; Try to update existing client's public_ip and status
+        _DB_UpdatePublicIPAndStatus($cid, $ip_public, $status, $ts)
+        ; If client doesn't exist yet, create minimal entry (status agent ran before earnapp client)
+        If Not _DB_ClientExists($cid) Then
+            _LogUI("[CB] Client not found, creating entry with public IP and status")
+            _DB_UpsertClient($cid, $ip_public, $ip_local, $hostname, $status, $message, $ts)
+        EndIf
+    Else
+        _LogUI("[CB] Regular client message - full upsert")
+        _DB_UpsertClient($cid, $ip_public, $ip_local, $hostname, $status, $message, $ts)
+    EndIf
     
     If @error Then
         _LogUI("[CB] ERROR: DB upsert failed - " & @error)
@@ -384,6 +398,97 @@ Func _DB_UpsertClient($cid, $ip_public, $ip_local, $hostname, $status, $message,
     If $h <> -1 Then
         FileWrite($h, $json)
         FileClose($h)
+    EndIf
+EndFunc
+
+Func _DB_ClientExists($cid)
+    Local $json = _ReadFile($gClientsFile)
+    If $json = "" Or $json = "[]" Then Return False
+    Local $searchClient = '"client_id":"' & _JsonEscStr($cid) & '"'
+    Return (StringInStr($json, $searchClient) > 0)
+EndFunc
+
+Func _DB_UpdatePublicIP($cid, $ip_public, $ts)
+    ; Update only public_ip and last_seen, don't touch status/message
+    Local $json = _ReadFile($gClientsFile)
+    If $json = "" Or $json = "[]" Then Return
+    
+    ; Find client by client_id
+    Local $searchClient = '"client_id":"' & _JsonEscStr($cid) & '"'
+    Local $pos = StringInStr($json, $searchClient)
+    
+    If $pos > 0 Then
+        ; Find object boundaries
+        Local $objStart = 0
+        For $i = $pos To 1 Step -1
+            If StringMid($json, $i, 1) = "{" Then
+                $objStart = $i
+                ExitLoop
+            EndIf
+        Next
+        Local $objEnd = StringInStr($json, "}", 0, 1, $pos)
+        If $objEnd = 0 Then Return
+        
+        ; Extract current object
+        Local $objText = StringMid($json, $objStart, $objEnd - $objStart + 1)
+        
+        ; Update ip_public field
+        $objText = StringRegExpReplace($objText, '"ip_public":"[^"]*"', '"ip_public":"' & _JsonEscStr($ip_public) & '"')
+        ; Update last_seen field
+        $objText = StringRegExpReplace($objText, '"last_seen":"[^"]*"', '"last_seen":"' & _JsonEscStr($ts) & '"')
+        
+        ; Replace in JSON
+        $json = StringLeft($json, $objStart - 1) & $objText & StringMid($json, $objEnd + 1)
+        
+        ; Write back
+        Local $h = FileOpen($gClientsFile, 2)
+        If $h <> -1 Then
+            FileWrite($h, $json)
+            FileClose($h)
+        EndIf
+    EndIf
+EndFunc
+
+Func _DB_UpdatePublicIPAndStatus($cid, $ip_public, $status, $ts)
+    ; Update public_ip, status and last_seen (used by StatusAgent)
+    Local $json = _ReadFile($gClientsFile)
+    If $json = "" Or $json = "[]" Then Return
+    
+    ; Find client by client_id
+    Local $searchClient = '"client_id":"' & _JsonEscStr($cid) & '"'
+    Local $pos = StringInStr($json, $searchClient)
+    
+    If $pos > 0 Then
+        ; Find object boundaries
+        Local $objStart = 0
+        For $i = $pos To 1 Step -1
+            If StringMid($json, $i, 1) = "{" Then
+                $objStart = $i
+                ExitLoop
+            EndIf
+        Next
+        Local $objEnd = StringInStr($json, "}", 0, 1, $pos)
+        If $objEnd = 0 Then Return
+        
+        ; Extract current object
+        Local $objText = StringMid($json, $objStart, $objEnd - $objStart + 1)
+        
+        ; Update ip_public field
+        $objText = StringRegExpReplace($objText, '"ip_public":"[^"]*"', '"ip_public":"' & _JsonEscStr($ip_public) & '"')
+        ; Update status field
+        $objText = StringRegExpReplace($objText, '"status":"[^"]*"', '"status":"' & _JsonEscStr($status) & '"')
+        ; Update last_seen field
+        $objText = StringRegExpReplace($objText, '"last_seen":"[^"]*"', '"last_seen":"' & _JsonEscStr($ts) & '"')
+        
+        ; Replace in JSON
+        $json = StringLeft($json, $objStart - 1) & $objText & StringMid($json, $objEnd + 1)
+        
+        ; Write back
+        Local $h = FileOpen($gClientsFile, 2)
+        If $h <> -1 Then
+            FileWrite($h, $json)
+            FileClose($h)
+        EndIf
     EndIf
 EndFunc
 
@@ -568,30 +673,28 @@ Func _DB_GetClientsForUI(ByRef $out, ByRef $rows)
     ; Matches array: [client_id, ip_public, ip_local, hostname, os, version, status, msg, ts, client_id2, ...]
     ; Each client has 9 fields
     Local $numClients = Int(UBound($matches) / 9)
-    Local $data[$numClients + 1][8]
+    Local $data[$numClients + 1][7]  ; Changed from 8 to 7 (removed OS)
     
-    ; Header row
+    ; Header row - NEW FORMAT: no OS, public_ip instead of version
     $data[0][0] = "client_id"
     $data[0][1] = "ip"
     $data[0][2] = "hostname"
-    $data[0][3] = "os"
-    $data[0][4] = "version"
-    $data[0][5] = "status"
-    $data[0][6] = "last_message"
-    $data[0][7] = "last_seen"
+    $data[0][3] = "public_ip"  ; Changed from "os"
+    $data[0][4] = "status"     ; Changed from "version"
+    $data[0][5] = "last_message"
+    $data[0][6] = "last_seen"
     
     ; Data rows
     Local $outIdx = 1
     For $i = 0 To UBound($matches) - 1 Step 9
         $data[$outIdx][0] = $matches[$i]      ; client_id
-        ; Prefer ip_local over ip_public
-        $data[$outIdx][1] = $matches[$i + 2] <> "" ? $matches[$i + 2] : $matches[$i + 1]  ; ip
+        ; Prefer ip_local over ip_public for IP column
+        $data[$outIdx][1] = $matches[$i + 2] <> "" ? $matches[$i + 2] : $matches[$i + 1]  ; ip (local)
         $data[$outIdx][2] = $matches[$i + 3]  ; hostname
-        $data[$outIdx][3] = $matches[$i + 4]  ; os
-        $data[$outIdx][4] = $matches[$i + 5]  ; version
-        $data[$outIdx][5] = $matches[$i + 6]  ; status
-        $data[$outIdx][6] = $matches[$i + 7]  ; last_message
-        $data[$outIdx][7] = $matches[$i + 8]  ; last_seen
+        $data[$outIdx][3] = $matches[$i + 1]  ; public_ip (was ip_public)
+        $data[$outIdx][4] = $matches[$i + 6]  ; status
+        $data[$outIdx][5] = $matches[$i + 7]  ; last_message
+        $data[$outIdx][6] = $matches[$i + 8]  ; last_seen
         $outIdx += 1
     Next
     

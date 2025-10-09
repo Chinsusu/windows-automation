@@ -1,0 +1,212 @@
+; Windows Automation Client Agent - Status Reporter
+; Reports local IP, public IP, and status to server
+; Server: 192.168.2.101:8080
+#RequireAdmin
+#include <WinHttp.au3>
+#include <Constants.au3>
+
+; ================== CONFIGURATION ==================
+Global Const $SERVER_URL = "http://192.168.2.101:8080/cb"
+Global Const $INTERVAL = 600000  ; 10 minutes (600000 ms)
+Global Const $LOG_FILE = @TempDir & "\StatusAgent.log"
+
+; ================== MAIN FUNCTIONS ==================
+
+; Get local IP address
+Func _GetLocalIP()
+    Local $ip = "unknown"
+    
+    ; Try AutoIt macros first
+    If @IPAddress1 <> "0.0.0.0" And @IPAddress1 <> "" Then
+        Return @IPAddress1
+    EndIf
+    
+    If @IPAddress2 <> "0.0.0.0" And @IPAddress2 <> "" Then
+        Return @IPAddress2
+    EndIf
+    
+    ; Fallback to ipconfig
+    Local $ipconfig = Run(@ComSpec & " /c ipconfig", "", @SW_HIDE, $STDOUT_CHILD)
+    Local $output = ""
+    While 1
+        $output &= StdoutRead($ipconfig)
+        If @error Then ExitLoop
+    WEnd
+    
+    Local $matches = StringRegExp($output, "(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", 3)
+    If Not @error And UBound($matches) > 0 Then
+        For $i = 0 To UBound($matches) - 1
+            Local $testIP = $matches[$i]
+            If Not StringInStr($testIP, "127.0.0.") And _
+               Not StringInStr($testIP, "169.254.") And _
+               Not StringInStr($testIP, "255.255.255.") And _
+               $testIP <> "0.0.0.0" Then
+                Return $testIP
+            EndIf
+        Next
+    EndIf
+    
+    Return $ip
+EndFunc
+
+; Get public IP address using WinHttp
+Func _GetPublicIP()
+    Local $aServices[3][2] = [["icanhazip.com", "/"], ["api.ipify.org", "/"], ["ifconfig.me", "/ip"]]
+    
+    For $i = 0 To UBound($aServices) - 1
+        Local $sHost = $aServices[$i][0]
+        Local $sPath = $aServices[$i][1]
+        
+        ; Open WinHttp session
+        Local $hOpen = _WinHttpOpen()
+        If @error Then ContinueLoop
+        
+        ; Connect to host
+        Local $hConnect = _WinHttpConnect($hOpen, $sHost)
+        If @error Then
+            _WinHttpCloseHandle($hOpen)
+            ContinueLoop
+        EndIf
+        
+        ; Send GET request
+        Local $hRequest = _WinHttpOpenRequest($hConnect, "GET", $sPath)
+        If @error Then
+            _WinHttpCloseHandle($hConnect)
+            _WinHttpCloseHandle($hOpen)
+            ContinueLoop
+        EndIf
+        
+        _WinHttpSendRequest($hRequest)
+        If @error Then
+            _WinHttpCloseHandle($hRequest)
+            _WinHttpCloseHandle($hConnect)
+            _WinHttpCloseHandle($hOpen)
+            ContinueLoop
+        EndIf
+        
+        _WinHttpReceiveResponse($hRequest)
+        If @error Then
+            _WinHttpCloseHandle($hRequest)
+            _WinHttpCloseHandle($hConnect)
+            _WinHttpCloseHandle($hOpen)
+            ContinueLoop
+        EndIf
+        
+        ; Read response
+        Local $sPublicIP = ""
+        If _WinHttpQueryDataAvailable($hRequest) Then
+            $sPublicIP = _WinHttpReadData($hRequest)
+            $sPublicIP = StringStripWS($sPublicIP, 3)  ; Trim whitespace
+        EndIf
+        
+        ; Clean up
+        _WinHttpCloseHandle($hRequest)
+        _WinHttpCloseHandle($hConnect)
+        _WinHttpCloseHandle($hOpen)
+        
+        ; Validate IP format
+        If StringRegExp($sPublicIP, "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$") Then
+            Return $sPublicIP
+        EndIf
+    Next
+    
+    Return "N/A"
+EndFunc
+
+; Generate client ID from computer name
+Func _GetClientId()
+    Local $hash = 0
+    Local $name = @ComputerName
+    For $i = 1 To StringLen($name)
+        $hash = Mod($hash * 31 + Asc(StringMid($name, $i, 1)), 2147483647)
+    Next
+    Return "client_" & Hex($hash, 8)
+EndFunc
+
+; Send status to server
+Func _SendStatus($localIP, $publicIP, $status)
+    Local $clientId = _GetClientId()
+    Local $json = '{' & _
+        '"client_id":"' & $clientId & '",' & _
+        '"ip":"' & $localIP & '",' & _
+        '"public_ip":"' & $publicIP & '",' & _
+        '"status":"' & $status & '",' & _
+        '"message":"Agent reporting status: ' & $status & '",' & _
+        '"computer":"' & @ComputerName & '"' & _
+    '}'
+    
+    _Log("Sending: " & $json)
+    
+    ; Write JSON to temp file
+    Local $jsonFile = @TempDir & "\status_agent.json"
+    FileDelete($jsonFile)
+    FileWrite($jsonFile, $json)
+    
+    ; Send via PowerShell
+    Local $ps = 'powershell -NoProfile -Command "' & _
+        'try { ' & _
+            '$json = Get-Content ''' & $jsonFile & ''' -Raw; ' & _
+            'Invoke-RestMethod -Uri ''' & $SERVER_URL & ''' -Method POST -Body $json -ContentType ''application/json'' -TimeoutSec 10; ' & _
+            'Write-Host ''OK''' & _
+        '} catch { ' & _
+            'Write-Host ''FAILED:'' $_.Exception.Message' & _
+        '}"'
+    
+    Local $pid = Run(@ComSpec & " /c " & $ps, "", @SW_HIDE, $STDOUT_CHILD)
+    Local $out = ""
+    While 1
+        $out &= StdoutRead($pid)
+        If @error Then ExitLoop
+    WEnd
+    
+    FileDelete($jsonFile)
+    
+    If StringInStr($out, "OK") Then
+        _Log("Status sent successfully")
+        Return True
+    Else
+        _Log("Failed to send status: " & $out)
+        Return False
+    EndIf
+EndFunc
+
+; Log function
+Func _Log($msg)
+    Local $timestamp = @YEAR & "-" & @MON & "-" & @MDAY & " " & @HOUR & ":" & @MIN & ":" & @SEC
+    Local $line = $timestamp & " | " & $msg & @CRLF
+    ConsoleWrite($line)
+    FileWrite($LOG_FILE, $line)
+EndFunc
+
+; Main execution
+Func Main()
+    _Log("==================== STATUS AGENT START ====================")
+    _Log("Computer: " & @ComputerName & " | Client ID: " & _GetClientId())
+    
+    Local $localIP = _GetLocalIP()
+    _Log("Local IP: " & $localIP)
+    
+    Local $publicIP = _GetPublicIP()
+    _Log("Public IP: " & $publicIP)
+    
+    Local $status = ($publicIP <> "N/A") ? "online" : "offline"
+    _Log("Status: " & $status)
+    
+    _SendStatus($localIP, $publicIP, $status)
+    
+    _Log("==================== STATUS AGENT END ====================")
+EndFunc
+
+; ================== ENTRY POINT ==================
+; Check if running in service mode (loop every 10 minutes)
+If $CmdLine[0] > 0 And $CmdLine[1] = "/service" Then
+    _Log("Running in SERVICE mode (interval: " & ($INTERVAL / 60000) & " minutes)")
+    While 1
+        Main()
+        Sleep($INTERVAL)
+    WEnd
+Else
+    ; Run once
+    _Log("Running in SINGLE mode")
+    Main()
+EndIf

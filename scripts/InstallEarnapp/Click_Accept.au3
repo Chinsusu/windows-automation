@@ -51,21 +51,38 @@ EndFunc
 
 ; Hàm ch? image xu?t hi?n trong c?a s? (loop search) và tr? v? v? trí n?u tìm th?y
 Func WaitForImageInWindow($sImagePath, $aPos, $iTimeout = 30, $iTolerance = 100)  ; Tang tolerance m?c d?nh lên 100
-    _Log("[Click_Sequence] Waiting for image '" & $sImagePath & "' in window (timeout: " & $iTimeout & "s, tolerance: " & $iTolerance & ")...")
+    _Log("[Click_Sequence] Waiting for image '" & $sImagePath & "' in window (timeout: " & ($iTimeout == 0 ? "INFINITE" : $iTimeout & "s") & ", tolerance: " & $iTolerance & ")...")
     Local $iStartTime = TimerInit()
     Local $iAttempts = 0
-    While TimerDiff($iStartTime) < ($iTimeout * 1000)
-        $iAttempts += 1
-        _Log("[Click_Sequence] Search attempt " & $iAttempts & "...")
-        Local $aResult = _ImageSearchEx_Area($sImagePath, $aPos[0], $aPos[1], $aPos[0] + $aPos[2], $aPos[1] + $aPos[3], $iTolerance)
-        If Not @error And $aResult[0][0] > 0 Then
-            Local $iX = $aResult[1][1]
-            Local $iY = $aResult[1][2]
-            _Log("[Click_Sequence] SUCCESS! Found image at X=" & $iX & " Y=" & $iY)
-            Return $aResult  ; Tr? v? k?t qu? d? l?y v? trí
-        EndIf
-        Sleep(1000)  ; Ch? 1 giây tru?c khi search l?i
-    WEnd
+    If $iTimeout == 0 Then
+        ; Infinite wait
+        While 1
+            $iAttempts += 1
+            _Log("[Click_Sequence] Search attempt " & $iAttempts & "...")
+            Local $aResult = _ImageSearchEx_Area($sImagePath, $aPos[0], $aPos[1], $aPos[0] + $aPos[2], $aPos[1] + $aPos[3], $iTolerance)
+            If Not @error And $aResult[0][0] > 0 Then
+                Local $iX = $aResult[1][1]
+                Local $iY = $aResult[1][2]
+                _Log("[Click_Sequence] SUCCESS! Found image at X=" & $iX & " Y=" & $iY)
+                Return $aResult  ; Tr? v? k?t qu? d? l?y v? trí
+            EndIf
+            Sleep(1000)  ; Ch? 1 giây tru?c khi search l?i
+        WEnd
+    Else
+        ; Finite wait
+        While TimerDiff($iStartTime) < ($iTimeout * 1000)
+            $iAttempts += 1
+            _Log("[Click_Sequence] Search attempt " & $iAttempts & "...")
+            Local $aResult = _ImageSearchEx_Area($sImagePath, $aPos[0], $aPos[1], $aPos[0] + $aPos[2], $aPos[1] + $aPos[3], $iTolerance)
+            If Not @error And $aResult[0][0] > 0 Then
+                Local $iX = $aResult[1][1]
+                Local $iY = $aResult[1][2]
+                _Log("[Click_Sequence] SUCCESS! Found image at X=" & $iX & " Y=" & $iY)
+                Return $aResult  ; Tr? v? k?t qu? d? l?y v? trí
+            EndIf
+            Sleep(1000)  ; Ch? 1 giây tru?c khi search l?i
+        WEnd
+    EndIf
     _Log("[Click_Sequence] ERROR: Image not found after " & $iTimeout & " seconds (" & $iAttempts & " attempts)")
     Return 0
 EndFunc
@@ -119,14 +136,14 @@ If WaitForEarnappWindow(30) Then
 
     _Log("[Click_Sequence] Window position: X=" & $aPos[0] & " Y=" & $aPos[1] & " W=" & $aPos[2] & " H=" & $aPos[3])
 
-    ; Bu?c 1: Tìm và click Accept.bmp (tang timeout và tolerance)
+    ; Bu?c 1: Tìm và click Accept.bmp (ch? vô h?n cho t?i khi tìm du?c)
     Local $sImagePath = @ScriptDir & "\Image\Accept.bmp"
     _Log("[Click_Sequence] Step 1: Image path for Accept: " & $sImagePath)
     If Not FileExists($sImagePath) Then
         _Log("[Click_Sequence] ERROR: Accept.bmp NOT found!")
         Exit 1
     EndIf
-    Local $aResult = WaitForImageInWindow($sImagePath, $aPos, 60, 100)  ; Tang timeout 60s, tolerance 100
+    Local $aResult = WaitForImageInWindow($sImagePath, $aPos, 0, 100)  ; Timeout 0: ch? vô h?n
     If $aResult = 0 Then
         _Log("[Click_Sequence] Fallback for Accept: Click center of window")
         Local $iX = $aPos[0] + $aPos[2] / 2

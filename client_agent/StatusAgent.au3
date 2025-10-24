@@ -18,6 +18,7 @@ Global Const $HTTP_TIMEOUT_RECV = 5000          ; ms
 Global Const $PS_TIMEOUT_SEC = 12               ; PowerShell Invoke-RestMethod timeout
 Global Const $CHILD_WAIT_TIMEOUT_SEC = 20       ; Max wait for child process (ipconfig/PowerShell)
 Global Const $CURL_TIMEOUT_SEC = 8              ; Max wait for curl icanhazip.com
+Global Const $LOG_MAX_SIZE = 524288             ; 512 KB log rotate threshold
 
 ; ================== MAIN FUNCTIONS ==================
 
@@ -85,6 +86,77 @@ Func _GetPublicIP_Curl()
     Local $out = StringStripWS(StdoutRead($pid), 3)
     If _IsValidIP($out) Then Return $out
     Return "N/A"
+EndFunc
+
+; HTTP POST JSON via WinHTTP with timeouts
+Func _HttpPostJson($sURL, $sJSON)
+    Local $aURL = _WinHttpCrackUrl($sURL)
+    If @error Or UBound($aURL) < 8 Then Return SetError(1, 0, False)
+
+    Local $scheme = $aURL[1]
+    Local $host = $aURL[2]
+    Local $port = $aURL[3]
+    Local $path = $aURL[6] & $aURL[7]
+    If $path = "" Then $path = "/"
+
+    Local $hOpen = _WinHttpOpen()
+    If @error Or $hOpen = 0 Then Return SetError(2, 0, False)
+    _WinHttpSetTimeouts($hOpen, $HTTP_TIMEOUT_RESOLVE, $HTTP_TIMEOUT_CONNECT, $HTTP_TIMEOUT_SEND, $HTTP_TIMEOUT_RECV)
+
+    Local $hConn = _WinHttpConnect($hOpen, $host, $port)
+    If @error Or $hConn = 0 Then
+        _WinHttpCloseHandle($hOpen)
+        Return SetError(3, 0, False)
+    EndIf
+
+    Local $flags = 0
+    If $scheme = $INTERNET_SCHEME_HTTPS Then $flags = $WINHTTP_FLAG_SECURE
+    Local $hReq = _WinHttpOpenRequest($hConn, "POST", $path, Default, $WINHTTP_NO_REFERER, $WINHTTP_DEFAULT_ACCEPT_TYPES, $flags)
+    If @error Or $hReq = 0 Then
+        _WinHttpCloseHandle($hConn)
+        _WinHttpCloseHandle($hOpen)
+        Return SetError(4, 0, False)
+    EndIf
+
+    ; Headers
+    _WinHttpAddRequestHeaders($hReq, "Content-Type: application/json", $WINHTTP_ADDREQ_FLAG_ADD)
+    _WinHttpAddRequestHeaders($hReq, "User-Agent: StatusAgent/1.0", $WINHTTP_ADDREQ_FLAG_ADD)
+    Local $apiKey = EnvGet("X_API_KEY")
+    If $apiKey <> "" Then _WinHttpAddRequestHeaders($hReq, "X-Api-Key: " & $apiKey, $WINHTTP_ADDREQ_FLAG_ADD)
+
+    ; Send body
+    Local $b = Binary($sJSON)
+    _WinHttpSendRequest($hReq, Default, $b)
+    If @error Then
+        _WinHttpCloseHandle($hReq)
+        _WinHttpCloseHandle($hConn)
+        _WinHttpCloseHandle($hOpen)
+        Return SetError(5, 0, False)
+    EndIf
+    _WinHttpReceiveResponse($hReq)
+    If @error Then
+        _WinHttpCloseHandle($hReq)
+        _WinHttpCloseHandle($hConn)
+        _WinHttpCloseHandle($hOpen)
+        Return SetError(6, 0, False)
+    EndIf
+
+    ; Status code
+    Local $code = _WinHttpQueryHeaders($hReq, BitOR($WINHTTP_QUERY_STATUS_CODE, $WINHTTP_QUERY_FLAG_NUMBER))
+    If @error Then $code = 0
+
+    ; Drain response
+    While _WinHttpQueryDataAvailable($hReq)
+        Local $chunk = _WinHttpReadData($hReq)
+        If @error Or $chunk = "" Then ExitLoop
+        ; ignore body
+    WEnd
+
+    _WinHttpCloseHandle($hReq)
+    _WinHttpCloseHandle($hConn)
+    _WinHttpCloseHandle($hOpen)
+
+    Return ($code >= 200 And $code < 300)
 EndFunc
 
 ; Get public IP address using curl first, then WinHttp fallback
@@ -180,38 +252,13 @@ Func _SendStatus($localIP, $publicIP, $status)
     
     _Log("Sending: " & $json)
     
-    ; Write JSON to temp file
-    Local $jsonFile = @TempDir & "\status_agent.json"
-    FileDelete($jsonFile)
-    FileWrite($jsonFile, $json)
-    
-    ; Send via PowerShell
-    Local $ps = 'powershell -NoProfile -Command "' & _
-        'try { ' & _
-            '$json = Get-Content ''' & $jsonFile & ''' -Raw; ' & _
-            'Invoke-RestMethod -Uri ''' & $SERVER_URL & ''' -Method POST -Body $json -ContentType ''application/json'' -TimeoutSec ' & $PS_TIMEOUT_SEC & '; ' & _
-            'Write-Host ''OK''' & _
-        '} catch { ' & _
-            'Write-Host ''FAILED:'' $_.Exception.Message' & _
-        '}"'
-
-    Local $pid = Run(@ComSpec & " /c " & $ps, "", @SW_HIDE, $STDOUT_CHILD)
-    Local $out = ""
-    If Not ProcessWaitClose($pid, $CHILD_WAIT_TIMEOUT_SEC) Then
-        ProcessClose($pid)
-        $out = $out & " TIMEOUT"
-    EndIf
-    $out &= StdoutRead($pid)
-    
-    FileDelete($jsonFile)
-    
-    If StringInStr($out, "OK") Then
-        _Log("Status sent successfully")
+    Local $ok = _HttpPostJson($SERVER_URL, $json)
+    If $ok Then
+        _Log("Status sent successfully (WinHTTP)")
         Return True
-    Else
-        _Log("Failed to send status: " & $out)
-        Return False
     EndIf
+    _Log("Failed to send status via WinHTTP")
+    Return False
 EndFunc
 
 ; Log function
@@ -219,6 +266,14 @@ Func _Log($msg)
     Local $timestamp = @YEAR & "-" & @MON & "-" & @MDAY & " " & @HOUR & ":" & @MIN & ":" & @SEC
     Local $line = $timestamp & " | " & $msg & @CRLF
     ConsoleWrite($line)
+    ; Rotate if large
+    If FileExists($LOG_FILE) Then
+        Local $sz = FileGetSize($LOG_FILE)
+        If @error = 0 And $sz > $LOG_MAX_SIZE Then
+            If FileExists($LOG_FILE & ".1") Then FileDelete($LOG_FILE & ".1")
+            FileMove($LOG_FILE, $LOG_FILE & ".1", 1)
+        EndIf
+    EndIf
     FileWrite($LOG_FILE, $line)
 EndFunc
 

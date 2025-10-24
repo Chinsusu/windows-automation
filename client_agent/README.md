@@ -23,6 +23,20 @@ StatusAgent.exe /service
 
 In service mode, the agent will send status reports every 10 minutes.
 
+### Run via Scheduled Task (every 10 minutes)
+Recommended for reliability: run once and exit, repeat every 10 minutes.
+
+```powershell
+# Run as Administrator
+cd client_agent
+./Schedule_StatusAgent_Every10Min.ps1 -ExePath "C:\ProgramData\StatusAgent\StatusAgent.exe" -RepeatMinutes 10
+
+# Start immediately (optional)
+Start-ScheduledTask -TaskName 'StatusAgent_10min'
+```
+
+This avoids a long-running process; each run sends status once and exits.
+
 ## Server Configuration
 - **Server URL**: `http://192.168.2.101:8080/status`
 - Change this in source code if needed (`$SERVER_URL` constant)

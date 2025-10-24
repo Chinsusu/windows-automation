@@ -11,14 +11,13 @@ Global Const $INTERVAL = 600000  ; 10 minutes (600000 ms)
 Global Const $LOG_FILE = @TempDir & "\StatusAgent.log"
 
 ; Networking/timeouts
-Global Const $PING_TARGET = "1.1.1.1"
-Global Const $NET_PING_TIMEOUT = 800            ; ms
 Global Const $HTTP_TIMEOUT_RESOLVE = 5000       ; ms
 Global Const $HTTP_TIMEOUT_CONNECT = 5000       ; ms
 Global Const $HTTP_TIMEOUT_SEND = 5000          ; ms
 Global Const $HTTP_TIMEOUT_RECV = 5000          ; ms
 Global Const $PS_TIMEOUT_SEC = 12               ; PowerShell Invoke-RestMethod timeout
 Global Const $CHILD_WAIT_TIMEOUT_SEC = 20       ; Max wait for child process (ipconfig/PowerShell)
+Global Const $CURL_TIMEOUT_SEC = 8              ; Max wait for curl icanhazip.com
 
 ; ================== MAIN FUNCTIONS ==================
 
@@ -64,12 +63,37 @@ Func _GetLocalIP()
     Return $ip
 EndFunc
 
-; Get public IP address using WinHttp
-Func _GetPublicIP()
-    Local $aServices[3][2] = [["icanhazip.com", "/"], ["api.ipify.org", "/"], ["ifconfig.me", "/ip"]]
+; Validate IPv4/IPv6 string
+Func _IsValidIP($s)
+    If $s = "" Then Return False
+    ; IPv4 simple check
+    If StringRegExp($s, "^\d{1,3}(\.\d{1,3}){3}$") Then Return True
+    ; IPv6 basic check (accepts compressed forms)
+    If StringInStr($s, ":") And StringRegExp($s, "^[0-9A-Fa-f:]+$") And StringLen($s) <= 45 Then Return True
+    Return False
+EndFunc
 
-    ; Quick connectivity check to avoid long DNS/connect stalls
-    If Ping($PING_TARGET, $NET_PING_TIMEOUT) = 0 Then Return "N/A"
+; Prefer curl to get public IP (handles routers blocking ICMP)
+Func _GetPublicIP_Curl()
+    Local $cmd = 'curl -s --max-time 6 https://icanhazip.com'
+    Local $pid = Run(@ComSpec & " /c " & $cmd, "", @SW_HIDE, $STDOUT_CHILD)
+    If $pid = 0 Then Return "N/A"
+    If Not ProcessWaitClose($pid, $CURL_TIMEOUT_SEC) Then
+        ProcessClose($pid)
+        Return "N/A"
+    EndIf
+    Local $out = StringStripWS(StdoutRead($pid), 3)
+    If _IsValidIP($out) Then Return $out
+    Return "N/A"
+EndFunc
+
+; Get public IP address using curl first, then WinHttp fallback
+Func _GetPublicIP()
+    ; Try curl (router may block ICMP, but HTTP should work)
+    Local $curlIP = _GetPublicIP_Curl()
+    If $curlIP <> "N/A" Then Return $curlIP
+
+    Local $aServices[3][2] = [["icanhazip.com", "/"], ["api.ipify.org", "/"], ["ifconfig.me", "/ip"]]
     
     For $i = 0 To UBound($aServices) - 1
         Local $sHost = $aServices[$i][0]
@@ -126,9 +150,7 @@ Func _GetPublicIP()
         _WinHttpCloseHandle($hOpen)
         
         ; Validate IP format
-        If StringRegExp($sPublicIP, "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$") Then
-            Return $sPublicIP
-        EndIf
+        If _IsValidIP($sPublicIP) Then Return $sPublicIP
     Next
     
     Return "N/A"

@@ -9,7 +9,7 @@
 
 ### Cài Git (Windows)
 - Tải **Git for Windows**: https://git-scm.com/download/win  
-- Khi cài, giữ mặc định **“Checkout Windows-style, commit Unix-style line endings”** (hoặc xem mục EOL bên dưới).
+- Khi cài, giữ mặc định “Checkout Windows-style, commit Unix-style line endings” (hoặc xem mục EOL bên dưới).
 
 ### Cấu hình Git cơ bản
 ```bash
@@ -19,11 +19,11 @@ git config --global user.email "you@example.com"
 # Tuỳ chọn: đặt nhánh mặc định là main
 git config --global init.defaultBranch main
 
-# Windows EOL (khuyến nghị cho dự án này vì có PowerShell/AutoIt)
+# Windows EOL (khuyến nghị cho dự án này và PowerShell/AutoIt)
 git config --global core.autocrlf true
 ```
 
-> **EOL khuyến nghị:** `core.autocrlf true` giúp file script PowerShell/AutoIt dùng CRLF trên Windows, tránh lỗi khi chạy.
+> EOL khuyến nghị: `core.autocrlf true` giúp file script PowerShell/AutoIt dùng CRLF trên Windows, tránh lỗi khi chạy.
 
 ---
 
@@ -31,7 +31,7 @@ git config --global core.autocrlf true
 
 ### Tạo (hoặc dùng) SSH key
 ```bash
-# sinh key (bấm Enter qua mọi prompt để mặc định)
+# sinh key (bấm Enter qua mỗi prompt để dùng mặc định)
 ssh-keygen -t ed25519 -C "you@example.com"
 # nếu máy không hỗ trợ ed25519:
 # ssh-keygen -t rsa -b 4096 -C "you@example.com"
@@ -42,7 +42,7 @@ ssh-keygen -t ed25519 -C "you@example.com"
   ```bash
   type ~/.ssh/id_ed25519.pub
   ```
-- Dán vào **GitHub > Settings > SSH and GPG keys > New SSH key**.
+- Dán vào GitHub > Settings > SSH and GPG keys > New SSH key.
 
 ### Kiểm tra kết nối
 ```bash
@@ -54,13 +54,13 @@ ssh -T git@github.com
 
 ## 3) Khởi tạo repo cục bộ & kết nối remote
 
-### A) Bạn muốn **clone** từ GitHub
+### A) Clone từ GitHub
 ```bash
 git clone git@github.com:Chinsusu/windows-automation.git
 cd windows-automation
 ```
 
-### B) Bạn đang có **folder sẵn** (đã tạo skeleton)
+### B) Đã có sẵn folder (đã tạo skeleton)
 ```bash
 cd path\to\automation-skeleton-autoit-v1
 git init
@@ -71,7 +71,7 @@ git remote add origin git@github.com:Chinsusu/windows-automation.git
 
 ---
 
-## 4) .gitignore & cấu trúc đề xuất
+## 4) .gitignore & cấu trúc đầu ra
 
 Đảm bảo repo có `.gitignore` (đã có trong skeleton):
 ```
@@ -82,7 +82,7 @@ git remote add origin git@github.com:Chinsusu/windows-automation.git
 *.log
 ```
 
-> **Không commit**: binary build, log runtime, DB runtime, secrets/token.
+> Không commit: binary build, log runtime, DB runtime, secrets/token.
 
 ---
 
@@ -97,9 +97,9 @@ git remote add origin git@github.com:Chinsusu/windows-automation.git
 
 ### Quy ước nhánh
 - `main`: ổn định phát hành
-- `feat/<tên-ngắn>`: tính năng
-- `fix/<tên-ngắn>`: sửa lỗi
-- `docs/<tên-ngắn>`: tài liệu
+- `feat/<ten-tinh-nang>`: tính năng
+- `fix/<ten-issue>`: sửa lỗi
+- `docs/<noi-dung>`: tài liệu
 
 ---
 
@@ -126,7 +126,7 @@ git push -u origin main
 
 ## 7) Flow phát hành (tag + R2)
 
-> **Mục tiêu:** Tag phiên bản, build agent, upload R2, cập nhật manifest & push.
+> Mục tiêu: Tag phiên bản, build agent, upload R2, cập nhật manifest & push.
 
 ### 7.1 Tạo tag phiên bản
 ```bash
@@ -139,7 +139,7 @@ git push origin v0.2.1
 ```
 
 ### 7.2 Build & upload R2
-- **S3 endpoint (AWS CLI):**
+- S3 endpoint (AWS CLI):
   ```powershell
   cd scripts
   ./compile_agent.ps1 0.2.1
@@ -149,14 +149,14 @@ git push origin v0.2.1
     -AccessKey $env:AWS_ACCESS_KEY_ID `
     -SecretKey $env:AWS_SECRET_ACCESS_KEY
   ```
-- **Cloudflare Worker (Bearer token):**
+- Cloudflare Worker (Bearer token):
   ```powershell
   cd scripts
   ./r2_worker.ps1 -WorkerUrl $env:R2_WORKER_URL -AuthToken $env:R2_AUTH_TOKEN
   Upload-R2File -LocalPath "..\dist\AutoAgent-0.2.1.exe" -RemotePath "releases/AutoAgent-0.2.1.exe"
   ```
 
-> `r2_upload.ps1` có cập nhật `manifests/manifest.json`.  
+> `r2_upload.ps1` sẽ cập nhật `manifests/manifest.json`.  
 > Với Worker, bạn tự sửa `manifests/manifest.json` tương ứng (hoặc viết step riêng để update).
 
 ### 7.3 Commit manifest & push
@@ -180,36 +180,36 @@ git add .
 git commit -m "feat: add preset commands for OPEN_URL and CONTROL_CLICK"
 git push -u origin feat/preset-commands
 
-# mở Pull Request trên GitHub → review/merge vào main
+# mở Pull Request trên GitHub để review/merge vào main
 ```
 
 ---
 
-## 9) Bảo mật & bí mật
+## 9) Bảo mật
 
-- **Tuyệt đối không** commit token: `R2_AUTH_TOKEN`, `AWS_SECRET_ACCESS_KEY`, v.v.
-- Sử dụng **biến môi trường** hoặc GitHub Actions secrets nếu dùng CI.
+- Tuyệt đối không commit token: `R2_AUTH_TOKEN`, `AWS_SECRET_ACCESS_KEY`, v.v.
+- Sử dụng biến môi trường hoặc GitHub Actions secrets nếu dùng CI.
 - Kiểm tra `git log` và `git remote -v` trước khi push nếu repo công khai.
 
 ---
 
 ## 10) Troubleshooting
 
-- **Permission denied (publickey)**  
+- Permission denied (publickey)  
   → Chưa add SSH key vào GitHub hoặc SSH agent chưa chạy.  
-  Kiểm: `ssh -T git@github.com`
+  Kiểm tra: `ssh -T git@github.com`
 
-- **Sai remote**  
+- Sai remote  
   ```bash
   git remote -v
   git remote set-url origin git@github.com:Chinsusu/windows-automation.git
   ```
 
-- **Line endings cảnh báo**  
-  → Bật `core.autocrlf true` (Windows) hoặc thêm `.gitattributes` nếu dự án đa nền tảng.
+- Cảnh báo line endings  
+  → Bật `core.autocrlf true` (Windows) hoặc thêm `.gitattributes` nếu đa nền tảng.
 
-- **Lỡ commit secret**  
-  → Xoá file, commit mới **và** rotate secret (đổi token ngay). Cân nhắc dùng `git filter-repo` để xoá lịch sử.
+- Lộ commit secret  
+  → Xoá file, commit mới và rotate secret (đổi token ngay). Cần thiết dùng `git filter-repo` để xoá lịch sử.
 
 ---
 
@@ -241,6 +241,7 @@ git push
 
 ---
 
-**Gợi ý file đặt:** `docs/GIT_PUSH_GITHUB.md`  
+**Gợi ý:** Tập trung đọc `README.md` + `docs/R2_WORKER_API.md` để triển khai phát hành.  
 **Remote:** `git@github.com:Chinsusu/windows-automation.git`  
-**Nhắc lại:** Không commit token R2/AWS. Dùng `README.md` + `docs/R2_WORKER_API.md` để triển khai phát hành.
+**Nhắc lại:** Không commit token R2/AWS.
+

@@ -1,13 +1,12 @@
 # Automation Skeleton (Windows + AutoIt) — v1
-Minimal repo để bắt đầu hệ thống automation: 1-file Agent (AutoIt) + Server GUI (AutoIt),
-build agent -> upload Cloudflare R2, quản lý client bằng SQLite.
+Repo khởi tạo tối giản cho hệ thống automation: Agent 1-file (AutoIt) + Server GUI (AutoIt), build agent → upload Cloudflare R2, quản lý client bằng SQLite.
 
-> Đây là skeleton có thể mở rộng. Các API/JSON hiện stub để bạn plug-in nhanh phần thực thi.
+> Đây là skeleton có thể mở rộng. Các API/JSON hiện ở trạng thái stub để bạn cắm nhanh phần thực thi.
 
 ## Cấu trúc
 ```
 automation-skeleton-autoit-v1/
-  agent/                 # 1-file Agent (tách module, mỗi file < 500 dòng)
+  agent/                 # Agent 1-file (tách module, mỗi file < 500 dòng)
   server/                # Server GUI + HTTP listener + SQLite
   scripts/               # PowerShell build & upload R2
   docs/                  # Protocol/Commands/Operations
@@ -16,10 +15,11 @@ automation-skeleton-autoit-v1/
   logs/                  # logs runtime
   dist/                  # output agent .exe (sau khi build)
 ```
+
 ## Yêu cầu
 - Windows 10/Server 2019/2022
 - AutoIt + Aut2Exe
-- (Tuỳ chọn) AWS CLI hoặc rclone cho Cloudflare R2
+- (Tùy chọn) AWS CLI hoặc rclone cho Cloudflare R2
 
 ## Nhanh: build Agent
 ```powershell
@@ -34,7 +34,7 @@ cd scripts
 ```
 
 ## Chạy Server GUI
-- Mở `server/server_gui.au3` bằng SciTE, chạy F5 để thử GUI.
+- Mở `server/server_gui.au3` bằng SciTE, nhấn F5 để thử GUI.
 - Listener & DB là stub: bổ sung thực thi trong `server_http_listener.au3` và `server_db.au3`.
 
 ## Agent cài đặt lần đầu (1 file duy nhất)
@@ -48,9 +48,8 @@ schtasks /Run /TN "AutoAgent"
 
 ## Lưu ý
 - Các module giữ dưới 500 dòng để dễ review.
-- JSON/HTTP hiện ở mức tối thiểu (stub) nhằm đảm bảo compile dễ. Bạn có thể dùng WinHttp.au3 và JSON UDF sau.
-
+- JSON/HTTP hiện ở mức tối thiểu (stub) nhằm đảm bảo compile. Bạn có thể dùng WinHttp.au3 và JSON UDF sau.
 
 ## R2 (Cloudflare) cho phát hành
-- Dùng endpoint S3 (AWS CLI) → `scripts/r2_upload.ps1`
-- **Hoặc** dùng Cloudflare Worker (Bearer token) → xem `docs/R2_WORKER_API.md` và script `scripts/r2_worker.ps1`
+- Dạng endpoint S3 (AWS CLI) + `scripts/r2_upload.ps1`
+- Hoặc dùng Cloudflare Worker (Bearer token) + xem `docs/R2_WORKER_API.md` và script `scripts/r2_worker.ps1`

@@ -1,8 +1,8 @@
 # Cloudflare R2 — Worker API for Releases
 
-Tài liệu này hướng dẫn **upload / list / download / delete** file lên **R2** qua **Cloudflare Worker** (Bearer token).
+Tài liệu này hướng dẫn upload / list / download / delete file lên R2 qua Cloudflare Worker (Bearer token).
 
-> Khuyến nghị: **KHÔNG commit token** vào Git. Đặt token trong biến môi trường.
+> Khuyến nghị: KHÔNG commit token vào Git. Đặt token trong biến môi trường.
 >
 > ```powershell
 > $env:R2_WORKER_URL = "https://<your-worker>.<your-subdomain>.workers.dev"
@@ -60,9 +60,10 @@ Invoke-RestMethod -Uri "$Worker/file/$Remote" -Method Delete `
 
 ## Tích hợp vào quy trình phát hành
 
-1. **Build** agent: `scripts/compile_agent.ps1 0.2.0` → tạo `dist/AutoAgent-0.2.0.exe`  
-2. **Upload** lên R2 qua Worker (PowerShell ở trên, hoặc dùng script `scripts/r2_worker.ps1`)  
-3. **Cập nhật manifest**: sửa `manifests/manifest.json` (hoặc dùng `scripts/r2_upload.ps1` nếu bạn dùng endpoint S3 của R2)  
-4. **Agent** sẽ `GET /agent/latest` và tải bản mới theo `manifest.json`
+1. Build agent: `scripts/compile_agent.ps1 0.2.0` → tạo `dist/AutoAgent-0.2.0.exe`  
+2. Upload lên R2 qua Worker (PowerShell ở trên, hoặc dùng script `scripts/r2_worker.ps1`)  
+3. Cập nhật manifest: sửa `manifests/manifest.json` (hoặc dùng `scripts/r2_upload.ps1` nếu bạn dùng endpoint S3 của R2)  
+4. Agent gọi `GET /agent/latest` và tải bản mới theo `manifest.json`
 
-> Bạn có thể dùng **Worker R2** để che giấu endpoint S3, set quota/rate-limit và kiểm soát truy cập bằng Bearer token.
+> Dùng Worker R2 để che endpoint S3, áp hạn mức/rate-limit và kiểm soát truy cập bằng Bearer token.
+

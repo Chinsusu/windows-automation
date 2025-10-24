@@ -10,6 +10,16 @@ Global Const $SERVER_URL = "http://192.168.2.101:8080/cb"
 Global Const $INTERVAL = 600000  ; 10 minutes (600000 ms)
 Global Const $LOG_FILE = @TempDir & "\StatusAgent.log"
 
+; Networking/timeouts
+Global Const $PING_TARGET = "1.1.1.1"
+Global Const $NET_PING_TIMEOUT = 800            ; ms
+Global Const $HTTP_TIMEOUT_RESOLVE = 5000       ; ms
+Global Const $HTTP_TIMEOUT_CONNECT = 5000       ; ms
+Global Const $HTTP_TIMEOUT_SEND = 5000          ; ms
+Global Const $HTTP_TIMEOUT_RECV = 5000          ; ms
+Global Const $PS_TIMEOUT_SEC = 12               ; PowerShell Invoke-RestMethod timeout
+Global Const $CHILD_WAIT_TIMEOUT_SEC = 20       ; Max wait for child process (ipconfig/PowerShell)
+
 ; ================== MAIN FUNCTIONS ==================
 
 ; Get local IP address
@@ -25,13 +35,18 @@ Func _GetLocalIP()
         Return @IPAddress2
     EndIf
     
-    ; Fallback to ipconfig
+    ; Fallback to ipconfig (bounded read with timeout)
     Local $ipconfig = Run(@ComSpec & " /c ipconfig", "", @SW_HIDE, $STDOUT_CHILD)
     Local $output = ""
-    While 1
+    Local $t = TimerInit()
+    While ProcessExists($ipconfig)
         $output &= StdoutRead($ipconfig)
-        If @error Then ExitLoop
+        If TimerDiff($t) > 3000 Then ExitLoop ; 3s cap
+        Sleep(50)
     WEnd
+    ; Drain remaining buffer
+    $output &= StdoutRead($ipconfig)
+    If ProcessExists($ipconfig) Then ProcessClose($ipconfig)
     
     Local $matches = StringRegExp($output, "(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", 3)
     If Not @error And UBound($matches) > 0 Then
@@ -52,14 +67,18 @@ EndFunc
 ; Get public IP address using WinHttp
 Func _GetPublicIP()
     Local $aServices[3][2] = [["icanhazip.com", "/"], ["api.ipify.org", "/"], ["ifconfig.me", "/ip"]]
+
+    ; Quick connectivity check to avoid long DNS/connect stalls
+    If Ping($PING_TARGET, $NET_PING_TIMEOUT) = 0 Then Return "N/A"
     
     For $i = 0 To UBound($aServices) - 1
         Local $sHost = $aServices[$i][0]
         Local $sPath = $aServices[$i][1]
         
-        ; Open WinHttp session
+        ; Open WinHttp session with timeouts
         Local $hOpen = _WinHttpOpen()
         If @error Then ContinueLoop
+        _WinHttpSetTimeouts($hOpen, $HTTP_TIMEOUT_RESOLVE, $HTTP_TIMEOUT_CONNECT, $HTTP_TIMEOUT_SEND, $HTTP_TIMEOUT_RECV)
         
         ; Connect to host
         Local $hConnect = _WinHttpConnect($hOpen, $sHost)
@@ -92,12 +111,14 @@ Func _GetPublicIP()
             ContinueLoop
         EndIf
         
-        ; Read response
+        ; Read response (drain fully)
         Local $sPublicIP = ""
-        If _WinHttpQueryDataAvailable($hRequest) Then
-            $sPublicIP = _WinHttpReadData($hRequest)
-            $sPublicIP = StringStripWS($sPublicIP, 3)  ; Trim whitespace
-        EndIf
+        While _WinHttpQueryDataAvailable($hRequest)
+            Local $chunk = _WinHttpReadData($hRequest)
+            If @error Or $chunk = "" Then ExitLoop
+            $sPublicIP &= $chunk
+        WEnd
+        $sPublicIP = StringStripWS($sPublicIP, 3)  ; Trim whitespace
         
         ; Clean up
         _WinHttpCloseHandle($hRequest)
@@ -146,18 +167,19 @@ Func _SendStatus($localIP, $publicIP, $status)
     Local $ps = 'powershell -NoProfile -Command "' & _
         'try { ' & _
             '$json = Get-Content ''' & $jsonFile & ''' -Raw; ' & _
-            'Invoke-RestMethod -Uri ''' & $SERVER_URL & ''' -Method POST -Body $json -ContentType ''application/json'' -TimeoutSec 10; ' & _
+            'Invoke-RestMethod -Uri ''' & $SERVER_URL & ''' -Method POST -Body $json -ContentType ''application/json'' -TimeoutSec ' & $PS_TIMEOUT_SEC & '; ' & _
             'Write-Host ''OK''' & _
         '} catch { ' & _
             'Write-Host ''FAILED:'' $_.Exception.Message' & _
         '}"'
-    
+
     Local $pid = Run(@ComSpec & " /c " & $ps, "", @SW_HIDE, $STDOUT_CHILD)
     Local $out = ""
-    While 1
-        $out &= StdoutRead($pid)
-        If @error Then ExitLoop
-    WEnd
+    If Not ProcessWaitClose($pid, $CHILD_WAIT_TIMEOUT_SEC) Then
+        ProcessClose($pid)
+        $out = $out & " TIMEOUT"
+    EndIf
+    $out &= StdoutRead($pid)
     
     FileDelete($jsonFile)
     
